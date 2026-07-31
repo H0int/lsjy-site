@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>罗圣纪元 - 系统状态</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .container { max-width: 600px; padding: 2rem; }
+        h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+        .subtitle { color: #94a3b8; margin-bottom: 2rem; }
+        .status-card { background: #1e293b; border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem; border: 1px solid #334155; }
+        .status-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #334155; }
+        .status-item:last-child { border-bottom: none; }
+        .status-badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .badge-ok { background: #064e3b; color: #6ee7b7; }
+        .badge-err { background: #7f1d1d; color: #fca5a5; }
+        .badge-warn { background: #78350f; color: #fcd34d; }
+        .refresh-btn { margin-top: 1.5rem; padding: 0.75rem 1.5rem; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; }
+        .refresh-btn:hover { background: #2563eb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐉 罗圣纪元系统状态</h1>
+        <p class="subtitle">实时监控各服务运行状态</p>
+        <div class="status-card">
+            <div class="status-item">
+                <span>🌐 前端服务</span>
+                <span class="status-badge badge-ok" id="frontend-status">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span>⚙️ 后端API</span>
+                <span class="status-badge" id="api-status">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span>🗄️ MySQL</span>
+                <span class="status-badge" id="mysql-status">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span>📦 Redis</span>
+                <span class="status-badge" id="redis-status">检查中...</span>
+            </div>
+            <div class="status-item">
+                <span>📄 MongoDB</span>
+                <span class="status-badge" id="mongo-status">检查中...</span>
+            </div>
+        </div>
+        <button class="refresh-btn" onclick="checkAll()">🔄 刷新状态</button>
+        <p style="margin-top: 1rem; color: #64748b; font-size: 0.875rem;">
+            最后检查: <span id="last-check">-</span>
+        </p>
+    </div>
+    <script>
+        async function checkService(name, url, elementId) {
+            const el = document.getElementById(elementId);
+            try {
+                const res = await fetch(url, { method: 'GET', mode: 'no-cors' });
+                // no-cors 返回 opaque response，type 为 'opaque'
+                el.textContent = '运行中';
+                el.className = 'status-badge badge-ok';
+            } catch (e) {
+                el.textContent = '不可达';
+                el.className = 'status-badge badge-err';
+            }
+        }
+
+        function checkAll() {
+            const now = new Date().toLocaleString('zh-CN');
+            document.getElementById('last-check').textContent = now;
+            
+            document.getElementById('frontend-status').textContent = '运行中';
+            document.getElementById('frontend-status').className = 'status-badge badge-ok';
+            
+            checkService('API', '/api/v1/health', 'api-status');
+        }
+
+        // 页面加载时自动检查
+        checkAll();
+    </script>
+</body>
+</html>

@@ -1,0 +1,1093 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="notranslate">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="google" content="notranslate">
+<meta name="robots" content="noindex, nofollow, notranslate">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,minimum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="logo.png" type="image/png">
+<title>罗圣纪元 - 后台管理系统 V8.0</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700;900&family=Orbitron:wght@400;700;900&display=swap');
+
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  --p:#00f5ff;--ph:#0ea5e9;--pl:#67e8f9;--ps:rgba(0,245,255,.08);--pg:rgba(0,245,255,.4);
+  --p2:#8b5cf6;--p2h:#7c3aed;--p2l:#c4b5fd;--p2s:rgba(139,92,246,.1);--p2g:rgba(139,92,246,.4);
+  --n:#e2e8f0;--nd:#94a3b8;--b:#64748b;--l:#475569;--bd:rgba(0,245,255,.1);
+  --bg:#060a12;--bg2:#0a1020;--bg3:#0e1628;
+  --w:#e2e8f0;--w2:rgba(0,245,255,.03);
+  --card:rgba(10,16,32,.85);--card-hover:rgba(14,22,40,.95);
+  --ok:#10b981;--err:#f43f5e;--warn:#f59e0b;
+  --shadow:0 4px 24px rgba(0,245,255,.08);
+  --shadow-lg:0 8px 40px rgba(0,245,255,.12);
+  --sidebar-bg:#040810;--sidebar-active:rgba(0,245,255,.12);
+  --sidebar-w:260px;--topbar-h:60px;
+  --glow-p:0 0 10px rgba(0,245,255,.3),0 0 30px rgba(0,245,255,.1);
+  --glow-p2:0 0 10px rgba(139,92,246,.3),0 0 30px rgba(139,92,246,.1);
+  --border-glow:1px solid rgba(0,245,255,.15);
+}
+
+body.theme-light{
+  --p:#0088cc;--ph:#0077b5;--pl:#48cae4;--ps:rgba(0,136,204,.08);--pg:rgba(0,136,204,.2);
+  --p2:#7c3aed;--p2h:#6d28d9;--p2l:#a78bfa;--p2s:rgba(124,58,237,.08);--p2g:rgba(124,58,237,.2);
+  --n:#1e293b;--nd:#64748b;--b:#94a3b8;--l:#cbd5e1;--bd:rgba(0,136,204,.12);
+  --bg:#f0f4f8;--bg2:#ffffff;--bg3:#f8fafc;
+  --w:#1e293b;--w2:rgba(0,136,204,.03);
+  --card:rgba(255,255,255,.95);--card-hover:rgba(255,255,255,1);
+  --shadow:0 4px 24px rgba(0,0,0,.06);
+  --shadow-lg:0 8px 40px rgba(0,0,0,.1);
+  --sidebar-bg:#fff;--sidebar-active:rgba(0,136,204,.1);
+  --glow-p:0 2px 8px rgba(0,136,204,.15);
+  --glow-p2:0 2px 8px rgba(124,58,237,.15);
+  --border-glow:1px solid rgba(0,136,204,.12);
+  color:#1e293b;
+}
+
+body{
+  font-family:'Noto Sans SC',-apple-system,BlinkMacSystemFont,sans-serif;
+  background:var(--bg);color:var(--w);overflow:hidden;height:100vh;
+}
+
+/* ===== CYBERPUNK BACKGROUND GRID ===== */
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    linear-gradient(rgba(0,245,255,.02) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,245,255,.02) 1px,transparent 1px);
+  background-size:40px 40px;
+}
+body::after{
+  content:'';position:fixed;top:0;left:0;right:0;height:200px;z-index:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,245,255,.03),transparent);
+}
+
+/* ===== SCANLINE OVERLAY ===== */
+.scanline-overlay{
+  position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.03) 2px,
+    rgba(0,0,0,.03) 4px
+  );
+}
+
+/* ===== LOGIN PAGE ===== */
+#login-page{
+  display:flex;align-items:center;justify-content:center;
+  height:100vh;width:100vw;
+  background:var(--bg);
+  position:relative;overflow:hidden;
+}
+/* Matrix rain canvas */
+#matrix-canvas{
+  position:absolute;inset:0;z-index:0;opacity:0.15;
+}
+/* Neon glow orbs */
+#login-page .orb{
+  position:absolute;border-radius:50%;filter:blur(80px);z-index:0;
+  animation:orbFloat 8s ease-in-out infinite;
+}
+#login-page .orb-1{
+  width:500px;height:500px;
+  background:radial-gradient(circle,rgba(0,245,255,.12),transparent 70%);
+  top:-150px;right:-100px;
+}
+#login-page .orb-2{
+  width:400px;height:400px;
+  background:radial-gradient(circle,rgba(139,92,246,.1),transparent 70%);
+  bottom:-100px;left:-80px;animation-delay:-4s;
+}
+#login-page .orb-3{
+  width:300px;height:300px;
+  background:radial-gradient(circle,rgba(0,245,255,.06),transparent 70%);
+  top:50%;left:50%;transform:translate(-50%,-50%);animation-delay:-2s;
+}
+
+@keyframes orbFloat{
+  0%,100%{transform:translate(0,0) scale(1)}
+  33%{transform:translate(30px,-20px) scale(1.05)}
+  66%{transform:translate(-20px,15px) scale(0.95)}
+}
+
+.login-box{
+  position:relative;z-index:1;
+  background:var(--card);
+  border:var(--border-glow);
+  border-radius:20px;
+  padding:48px 40px;width:420px;max-width:92vw;
+  box-shadow:var(--shadow-lg),var(--glow-p);
+  backdrop-filter:blur(20px);
+  animation:loginSlideIn .6s ease;
+}
+.login-box::before{
+  content:'';position:absolute;inset:-1px;border-radius:20px;
+  background:linear-gradient(135deg,rgba(0,245,255,.2),transparent 40%,rgba(139,92,246,.2));
+  z-index:-1;mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+  mask-composite:exclude;-webkit-mask-composite:xor;padding:1px;
+}
+
+@keyframes loginSlideIn{
+  from{opacity:0;transform:translateY(30px) scale(0.95)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+.login-logo{text-align:center;margin-bottom:36px;}
+.login-logo h1{
+  font-family:'Orbitron','Noto Sans SC',sans-serif;
+  font-size:32px;font-weight:900;letter-spacing:2px;
+  background:linear-gradient(135deg,var(--p),var(--p2));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+  text-shadow:none;
+  filter:drop-shadow(0 0 20px rgba(0,245,255,.3));
+}
+.login-logo .version-tag{
+  display:inline-block;margin-top:8px;
+  padding:2px 10px;border-radius:20px;
+  background:var(--ps);border:1px solid rgba(0,245,255,.2);
+  font-size:11px;color:var(--p);font-family:'Orbitron',monospace;
+  letter-spacing:1px;
+}
+.login-logo p{color:var(--nd);font-size:13px;margin-top:8px;}
+
+.login-field{margin-bottom:20px;position:relative;}
+.login-field label{display:block;font-size:12px;color:var(--nd);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:1px;}
+.login-field input{
+  width:100%;padding:14px 16px 14px 44px;
+  background:var(--bg2);border:var(--border-glow);
+  border-radius:10px;color:var(--w);font-size:14px;outline:none;transition:.3s;
+}
+.login-field input:focus{
+  border-color:var(--p);
+  box-shadow:0 0 0 3px var(--ps),var(--glow-p);
+}
+.login-field .field-icon{
+  position:absolute;left:14px;top:42px;color:var(--nd);font-size:16px;
+  transition:color .3s;
+}
+.login-field input:focus ~ .field-icon,
+.login-field input:focus + .field-icon{color:var(--p);}
+.login-pwd-toggle{
+  position:absolute;right:14px;top:40px;cursor:pointer;color:var(--nd);
+  padding:4px;transition:color .2s;
+}
+.login-pwd-toggle:hover{color:var(--p);}
+
+.login-btn{
+  width:100%;padding:16px;border:none;border-radius:10px;
+  background:linear-gradient(135deg,var(--p),var(--p2));
+  color:#fff;font-size:15px;font-weight:700;cursor:pointer;
+  transition:.3s;letter-spacing:2px;margin-top:8px;
+  position:relative;overflow:hidden;
+  text-transform:uppercase;
+}
+.login-btn::before{
+  content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);
+  transition:left .5s;
+}
+.login-btn:hover::before{left:100%;}
+.login-btn:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 30px rgba(0,245,255,.3),0 4px 15px rgba(139,92,246,.2);
+}
+.login-btn:active{transform:translateY(0);}
+
+.login-footer{text-align:center;margin-top:24px;color:var(--nd);font-size:11px;letter-spacing:.5px;}
+
+/* ===== MAIN APP ===== */
+#main-app{
+  display:none;height:100vh;width:100vw;
+}
+#main-app.active{
+  display:flex;
+}
+
+/* ===== SIDEBAR ===== */
+#sidebar{
+  width:var(--sidebar-w);height:100vh;
+  background:var(--sidebar-bg);
+  border-right:var(--border-glow);
+  display:flex;flex-direction:column;
+  transition:width .3s ease, transform .3s ease;
+  overflow:hidden;flex-shrink:0;
+  position:relative;z-index:100;
+}
+#sidebar::after{
+  content:'';position:absolute;top:0;right:0;bottom:0;width:1px;
+  background:linear-gradient(180deg,rgba(0,245,255,.3),rgba(139,92,246,.3),rgba(0,245,255,.3));
+  opacity:.5;
+}
+#sidebar.collapsed{width:68px;}
+#sidebar.collapsed .sb-brand span,
+  #sidebar.collapsed .sb-group,
+  #sidebar.collapsed .sb-item span,
+  #sidebar.collapsed .sb-item i,
+  #sidebar.collapsed .sb-menu-header .menu-label,
+  #sidebar.collapsed .sb-menu-header .menu-arrow,
+  #sidebar.collapsed .sb-menu-header .menu-badge,
+  #sidebar.collapsed .sb-sub-item span,
+  #sidebar.collapsed .sb-sub-item i,
+  #sidebar.collapsed .sb-footer{display:none;}
+  #sidebar.collapsed .sb-item{justify-content:center;padding:12px 0;}
+  #sidebar.collapsed .sb-item i{margin:0;font-size:20px;}
+  #sidebar.collapsed .sb-menu-header{justify-content:center;padding:12px 0;}
+  #sidebar.collapsed .sb-menu-header .menu-icon{margin:0;font-size:18px;}
+
+.sb-brand{
+  padding:16px 18px;border-bottom:var(--border-glow);
+  display:flex;align-items:center;gap:12px;
+  min-height:var(--topbar-h);flex-shrink:0;
+}
+.sb-brand-icon{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,var(--p),var(--p2));
+  display:flex;align-items:center;justify-content:center;
+  font-weight:900;font-size:14px;color:#fff;flex-shrink:0;
+  font-family:'Orbitron',sans-serif;
+  box-shadow:var(--glow-p);
+}
+.sb-brand span{
+  font-weight:700;font-size:15px;white-space:nowrap;color:var(--w);
+  font-family:'Orbitron','Noto Sans SC',sans-serif;
+  letter-spacing:1px;
+}
+.sb-nav{flex:1;overflow-y:auto;padding:8px 0;}
+.sb-nav::-webkit-scrollbar{width:3px;}
+.sb-nav::-webkit-scrollbar-thumb{background:rgba(0,245,255,.2);border-radius:2px;}
+
+.sb-group{
+  padding:12px 18px 6px;font-size:10px;color:var(--p);
+  text-transform:uppercase;letter-spacing:2px;font-weight:700;
+  margin-top:4px;opacity:.6;
+}
+.sb-group:first-child{margin-top:0;}
+
+.sb-item{
+  display:flex;align-items:center;gap:12px;
+  padding:11px 18px;margin:2px 10px;border-radius:10px;
+  cursor:pointer;transition:all .25s;color:var(--nd);font-size:14px;
+  white-space:nowrap;position:relative;
+}
+.sb-item:hover{
+  background:var(--sidebar-active);color:var(--w);
+}
+.sb-item.active{
+  background:var(--sidebar-active);color:var(--p);font-weight:600;
+  box-shadow:inset 0 0 20px rgba(0,245,255,.05);
+}
+.sb-item.active::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;
+  background:var(--p);border-radius:0 3px 3px 0;
+  box-shadow:var(--glow-p);
+}
+.sb-item i{width:20px;text-align:center;font-size:15px;flex-shrink:0;}
+
+.sb-footer{
+  padding:12px 16px;border-top:var(--border-glow);
+  font-size:10px;color:var(--nd);text-align:center;
+  letter-spacing:.5px;flex-shrink:0;
+}
+
+/* ===== SIDEBAR COLLAPSIBLE MENU ===== */
+.sb-menu-group{margin:2px 10px;border-radius:10px;overflow:hidden;}
+.sb-menu-header{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;cursor:pointer;transition:all .25s;
+  color:var(--nd);font-size:13px;font-weight:600;
+  border-radius:10px;user-select:none;
+}
+.sb-menu-header:hover{background:var(--sidebar-active);color:var(--w);}
+.sb-menu-header .menu-icon{width:20px;text-align:center;font-size:14px;flex-shrink:0;}
+.sb-menu-header .menu-label{flex:1;white-space:nowrap;}
+.sb-menu-header .menu-arrow{
+  font-size:10px;transition:transform .3s;color:var(--nd);
+  width:16px;text-align:center;flex-shrink:0;
+}
+.sb-menu-header .menu-badge{
+  background:var(--p);color:#000;font-size:10px;font-weight:700;
+  padding:1px 6px;border-radius:8px;min-width:18px;text-align:center;
+  flex-shrink:0;
+}
+.sb-menu-group.open .sb-menu-header .menu-arrow{transform:rotate(90deg);}
+.sb-menu-group.open .sb-menu-header{color:var(--p);}
+.sb-menu-items{
+  max-height:0;overflow:hidden;transition:max-height .35s ease;
+}
+.sb-menu-group.open .sb-menu-items{max-height:500px;}
+.sb-sub-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 14px 9px 44px;margin:1px 0;cursor:pointer;
+  transition:all .25s;color:var(--nd);font-size:13px;
+  border-radius:8px;white-space:nowrap;position:relative;
+}
+.sb-sub-item:hover{background:var(--sidebar-active);color:var(--w);}
+.sb-sub-item.active{
+  background:var(--sidebar-active);color:var(--p);font-weight:600;
+}
+.sb-sub-item.active::before{
+  content:'';position:absolute;left:0;top:20%;bottom:20%;width:3px;
+  background:var(--p);border-radius:0 3px 3px 0;
+  box-shadow:var(--glow-p);
+}
+.sb-sub-item i{width:16px;text-align:center;font-size:13px;flex-shrink:0;}
+.sb-sub-item .sub-label{flex:1;}
+.sb-sub-item .sub-badge{
+  font-size:10px;color:var(--p);background:var(--ps);
+  padding:1px 6px;border-radius:8px;
+}
+/* Collapsed sidebar: hide sub-items and badges */
+#sidebar.collapsed .sb-menu-items{max-height:0 !important;}
+#sidebar.collapsed .sb-menu-header .menu-label,
+#sidebar.collapsed .sb-menu-header .menu-arrow,
+#sidebar.collapsed .sb-menu-header .menu-badge,
+#sidebar.collapsed .sb-footer{display:none;}
+#sidebar.collapsed .sb-menu-header{justify-content:center;padding:12px 0;}
+#sidebar.collapsed .sb-menu-header .menu-icon{margin:0;font-size:18px;}
+/* Footer link */
+.sb-footer-link{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 18px;cursor:pointer;transition:all .25s;
+  color:var(--nd);font-size:13px;
+}
+.sb-footer-link:hover{color:var(--p);}
+.sb-footer-link i{width:20px;text-align:center;font-size:14px;}
+
+/* ===== SIDEBAR BACKDROP (Mobile) ===== */
+.sidebar-backdrop{
+  display:none;position:fixed;inset:0;z-index:99;
+  background:rgba(0,0,0,.6);backdrop-filter:blur(4px);
+  opacity:0;transition:opacity .3s;
+}
+.sidebar-backdrop.visible{display:block;opacity:1;}
+
+/* ===== TOPBAR ===== */
+#topbar{
+  height:var(--topbar-h);background:var(--bg2);
+  border-bottom:var(--border-glow);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;flex-shrink:0;
+  position:relative;
+}
+#topbar::after{
+  content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(0,245,255,.3),rgba(139,92,246,.3),transparent);
+}
+.topbar-left{display:flex;align-items:center;gap:12px;}
+.topbar-right{display:flex;align-items:center;gap:12px;}
+#sidebar-toggle{
+  width:36px;height:36px;border-radius:8px;border:var(--border-glow);
+  background:transparent;color:var(--nd);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .25s;font-size:14px;
+}
+#sidebar-toggle:hover{color:var(--p);border-color:var(--p);box-shadow:var(--glow-p);}
+#page-title{
+  font-size:16px;font-weight:700;color:var(--w);
+  font-family:'Orbitron','Noto Sans SC',sans-serif;
+  letter-spacing:1px;
+}
+.topbar-btn{
+  width:38px;height:38px;border-radius:10px;border:var(--border-glow);
+  background:transparent;color:var(--nd);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .25s;font-size:14px;
+}
+.topbar-btn:hover{color:var(--p);border-color:var(--p);box-shadow:var(--glow-p);}
+#admin-info{
+  font-size:13px;color:var(--w);display:flex;align-items:center;gap:8px;
+  padding:6px 12px;border-radius:8px;background:var(--w2);
+  border:var(--border-glow);
+}
+#btn-logout{
+  padding:8px 16px;border-radius:8px;border:1px solid var(--err);
+  background:transparent;color:var(--err);cursor:pointer;
+  font-size:12px;font-weight:600;transition:all .25s;
+  display:flex;align-items:center;gap:6px;
+}
+#btn-logout:hover{background:var(--err);color:#fff;box-shadow:0 0 15px rgba(244,63,94,.3);}
+
+#mobile-menu{
+  display:none;width:40px;height:40px;border-radius:10px;border:var(--border-glow);
+  background:transparent;color:var(--nd);cursor:pointer;
+  align-items:center;justify-content:center;font-size:18px;
+  transition:all .25s;
+}
+#mobile-menu:hover{color:var(--p);border-color:var(--p);}
+
+/* ===== MAIN CONTENT ===== */
+#content-area{
+  flex:1;display:flex;flex-direction:column;overflow:hidden;
+  position:relative;z-index:1;
+}
+#main-content{
+  flex:1;overflow-y:auto;padding:20px;
+  animation:fadeIn .4s ease;
+}
+#main-content::-webkit-scrollbar{width:4px;}
+#main-content::-webkit-scrollbar-thumb{background:rgba(0,245,255,.2);border-radius:2px;}
+
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+
+/* ===== STAT CARDS ===== */
+.dash-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));
+  gap:16px;margin-bottom:20px;
+}
+.stat-card{
+  background:var(--card);border:var(--border-glow);border-radius:14px;
+  padding:18px;display:flex;align-items:center;gap:16px;
+  transition:all .3s;position:relative;overflow:hidden;
+  backdrop-filter:blur(10px);
+}
+.stat-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,var(--p),var(--p2));
+  opacity:0;transition:opacity .3s;
+}
+.stat-card:hover{
+  border-color:rgba(0,245,255,.3);
+  transform:translateY(-3px);
+  box-shadow:var(--shadow-lg);
+}
+.stat-card:hover::before{opacity:1;}
+.stat-icon{
+  width:48px;height:48px;border-radius:12px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:20px;flex-shrink:0;
+  position:relative;
+}
+.stat-icon::after{
+  content:'';position:absolute;inset:0;border-radius:12px;
+  background:inherit;opacity:.15;filter:blur(12px);
+}
+.stat-value{
+  font-size:24px;font-weight:900;line-height:1.2;
+  font-family:'Orbitron','Noto Sans SC',sans-serif;
+}
+.stat-label{font-size:12px;color:var(--nd);margin-top:2px;}
+.stat-sub{font-size:11px;color:var(--nd);margin-top:2px;opacity:.7;}
+
+/* ===== DASH CARD ===== */
+.dash-card{
+  background:var(--card);border:var(--border-glow);border-radius:14px;
+  margin-bottom:16px;overflow:hidden;
+  backdrop-filter:blur(10px);
+  transition:border-color .3s,box-shadow .3s;
+}
+.dash-card:hover{
+  border-color:rgba(0,245,255,.2);
+  box-shadow:0 4px 20px rgba(0,245,255,.05);
+}
+.dash-card-header{
+  padding:16px 18px;border-bottom:var(--border-glow);
+  font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px;
+  color:var(--w);
+}
+.dash-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+
+/* ===== TABLE ===== */
+.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.admin-table{width:100%;border-collapse:collapse;font-size:13px;min-width:500px;}
+.admin-table th{
+  padding:12px 14px;text-align:left;font-weight:600;
+  color:var(--p);border-bottom:var(--border-glow);
+  white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:1px;
+}
+.admin-table td{
+  padding:12px 14px;border-bottom:rgba(0,245,255,.05);
+  vertical-align:middle;
+}
+.admin-table tr:hover td{background:var(--w2);}
+.admin-table .action-cell{display:flex;gap:6px;flex-wrap:nowrap;}
+
+/* ===== BUTTONS ===== */
+.admin-btn{
+  padding:10px 20px;border-radius:8px;border:none;
+  background:linear-gradient(135deg,var(--p),var(--ph));
+  color:#000;font-size:13px;font-weight:700;
+  cursor:pointer;transition:all .25s;
+  display:inline-flex;align-items:center;gap:8px;
+  position:relative;overflow:hidden;
+}
+.admin-btn::before{
+  content:'';position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);
+  transition:left .4s;
+}
+.admin-btn:hover::before{left:100%;}
+.admin-btn:hover{
+  transform:translateY(-1px);
+  box-shadow:var(--glow-p);
+}
+.admin-btn-cancel{
+  padding:10px 20px;border-radius:8px;border:var(--border-glow);
+  background:transparent;color:var(--nd);font-size:13px;
+  cursor:pointer;transition:all .25s;
+}
+.admin-btn-cancel:hover{border-color:var(--p);color:var(--p);}
+.admin-btn-danger{
+  padding:10px 20px;border-radius:8px;border:none;
+  background:linear-gradient(135deg,var(--err),#e11d48);
+  color:#fff;font-size:13px;font-weight:700;
+  cursor:pointer;transition:all .25s;
+}
+.admin-btn-danger:hover{
+  transform:translateY(-1px);
+  box-shadow:0 0 15px rgba(244,63,94,.3);
+}
+
+.btn-xs{
+  padding:6px 12px;border-radius:6px;border:1px solid var(--bd);
+  background:transparent;color:var(--nd);font-size:11px;font-weight:500;
+  cursor:pointer;transition:all .2s;white-space:nowrap;
+  min-height:32px;display:inline-flex;align-items:center;
+}
+.btn-xs:hover{border-color:var(--p);color:var(--p);}
+.btn-xs.btn-ok{border-color:var(--ok);color:var(--ok);}
+.btn-xs.btn-ok:hover{background:var(--ok);color:#fff;}
+.btn-xs.btn-err{border-color:var(--err);color:var(--err);}
+.btn-xs.btn-err:hover{background:var(--err);color:#fff;}
+.btn-xs.btn-warn{border-color:var(--warn);color:var(--warn);}
+.btn-xs.btn-warn:hover{background:var(--warn);color:#fff;}
+
+/* ===== BADGES ===== */
+.badge{
+  display:inline-block;padding:3px 10px;border-radius:6px;
+  font-size:11px;font-weight:600;white-space:nowrap;
+  letter-spacing:.3px;
+}
+.badge-ok{background:rgba(16,185,129,.12);color:var(--ok);border:1px solid rgba(16,185,129,.2);}
+.badge-err{background:rgba(244,63,94,.12);color:var(--err);border:1px solid rgba(244,63,94,.2);}
+.badge-warn{background:rgba(245,158,11,.12);color:var(--warn);border:1px solid rgba(245,158,11,.2);}
+.badge-p{background:var(--ps);color:var(--p);border:1px solid rgba(0,245,255,.2);}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:middle;}
+
+/* ===== TOOLBAR ===== */
+.page-toolbar{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:16px;flex-wrap:wrap;gap:12px;
+}
+.toolbar-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.toolbar-right{display:flex;align-items:center;gap:10px;}
+
+.page-toolbar input[type="text"],
+.page-toolbar select{
+  padding:10px 14px;background:var(--bg2);border:var(--border-glow);
+  border-radius:8px;color:var(--w);font-size:13px;outline:none;
+  transition:all .25s;min-height:40px;
+}
+.page-toolbar input[type="text"]:focus,
+.page-toolbar select:focus{
+  border-color:var(--p);box-shadow:0 0 0 3px var(--ps);
+}
+.page-toolbar select option{background:var(--bg2);color:var(--w);}
+
+/* ===== TAB BAR ===== */
+.tab-bar{
+  display:flex;gap:4px;margin-bottom:16px;
+  background:var(--bg2);border-radius:10px;padding:4px;
+  overflow-x:auto;flex-wrap:nowrap;
+  border:var(--border-glow);
+  -webkit-overflow-scrolling:touch;
+}
+.tab-item{
+  padding:10px 18px;border-radius:8px;cursor:pointer;
+  font-size:13px;color:var(--nd);transition:all .25s;
+  white-space:nowrap;font-weight:500;
+  min-height:40px;display:flex;align-items:center;
+}
+.tab-item:hover{color:var(--w);background:var(--w2);}
+.tab-item.active{
+  background:linear-gradient(135deg,var(--p),var(--ph));
+  color:#000;font-weight:700;
+  box-shadow:var(--glow-p);
+}
+
+/* ===== TOGGLE SWITCH ===== */
+.toggle-switch{display:inline-flex;align-items:center;cursor:pointer;}
+.toggle-switch input{display:none;}
+.toggle-slider{
+  width:40px;height:22px;background:var(--bd);border-radius:11px;
+  position:relative;transition:.3s;
+}
+.toggle-slider::after{
+  content:'';width:18px;height:18px;background:#fff;border-radius:50%;
+  position:absolute;top:2px;left:2px;transition:.3s;
+}
+.toggle-switch input:checked+.toggle-slider{
+  background:var(--p);
+  box-shadow:0 0 10px rgba(0,245,255,.3);
+}
+.toggle-switch input:checked+.toggle-slider::after{left:20px;}
+
+/* ===== FORM ===== */
+.form-group{margin-bottom:16px;}
+.form-group label{
+  display:block;font-size:12px;color:var(--nd);margin-bottom:6px;font-weight:600;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.form-group input,.form-group textarea,.form-group select{
+  width:100%;padding:12px 14px;background:var(--bg2);border:var(--border-glow);
+  border-radius:8px;color:var(--w);font-size:13px;outline:none;
+  transition:all .25s;font-family:inherit;
+}
+.form-group input:focus,.form-group textarea:focus,.form-group select:focus{
+  border-color:var(--p);box-shadow:0 0 0 3px var(--ps);
+}
+
+/* ===== PAGINATION ===== */
+.pagination{display:flex;justify-content:center;gap:6px;margin-top:16px;flex-wrap:wrap;}
+.pagination button{
+  padding:8px 14px;border:var(--border-glow);border-radius:6px;
+  background:transparent;color:var(--nd);cursor:pointer;font-size:12px;
+  transition:all .2s;min-height:36px;
+}
+.pagination button:hover,.pagination button.active{
+  background:var(--p);color:#000;border-color:var(--p);
+  box-shadow:var(--glow-p);
+}
+
+/* ===== MODAL ===== */
+.modal-overlay{
+  position:fixed;inset:0;z-index:9998;
+  background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  display:flex;align-items:center;justify-content:center;
+  padding:20px;animation:fadeIn .2s ease;
+}
+.modal-box{
+  background:var(--bg3);border:var(--border-glow);border-radius:16px;
+  padding:24px;max-width:500px;width:100%;color:var(--w);
+  box-shadow:var(--shadow-lg);max-height:90vh;overflow-y:auto;
+  animation:modalSlideIn .3s ease;
+}
+@keyframes modalSlideIn{
+  from{opacity:0;transform:translateY(20px) scale(0.95)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.modal-header{
+  font-size:16px;font-weight:700;margin-bottom:16px;
+  display:flex;align-items:center;gap:10px;
+  padding-bottom:12px;border-bottom:var(--border-glow);
+}
+.modal-close{
+  margin-left:auto;width:32px;height:32px;border-radius:8px;
+  border:var(--border-glow);background:transparent;color:var(--nd);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;
+}
+.modal-close:hover{color:var(--err);border-color:var(--err);}
+
+/* ===== RESPONSIVE - TABLET ===== */
+@media(max-width:1024px){
+  :root{--sidebar-w:220px;}
+  .dash-grid{grid-template-columns:repeat(auto-fill,minmax(200px,1fr));}
+}
+
+/* ===== RESPONSIVE - MOBILE ===== */
+@media(max-width:768px){
+  :root{--topbar-h:56px;--sidebar-w:280px;}
+
+  /* 允许body在移动端正常布局 */
+  body{overflow:hidden;position:fixed;width:100%;height:100%;}
+
+  /* Sidebar becomes drawer */
+  #sidebar{
+    position:fixed;left:0;top:0;bottom:0;z-index:1000;
+    transform:translateX(-100%);
+    width:280px !important;
+    box-shadow:none;
+    transition:transform .3s ease;
+    padding-top:env(safe-area-inset-top);
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  #sidebar.mobile-open{
+    transform:translateX(0);
+    box-shadow:10px 0 40px rgba(0,0,0,.5);
+  }
+  #sidebar.collapsed{width:280px !important;}
+  #sidebar.collapsed .sb-brand span,
+  #sidebar.collapsed .sb-group,
+  #sidebar.collapsed .sb-item span,
+  #sidebar.collapsed .sb-footer{display:block;}
+  #sidebar.collapsed .sb-item{justify-content:flex-start;padding:11px 18px;}
+  #sidebar.collapsed .sb-item i{margin:0;font-size:15px;}
+
+  #mobile-menu{display:flex !important;}
+
+  /* Topbar */
+  #topbar{padding:0 12px;padding-top:env(safe-area-inset-top);}
+  #page-title{font-size:14px;}
+  #admin-info{display:none;}
+  #btn-logout{padding:6px 10px;font-size:11px;}
+  #btn-logout .btn-text{display:none;}
+  .topbar-right{gap:8px;}
+
+  /* Content - 确保正确滚动，防止重叠 */
+  #content-area{
+    position:relative;z-index:1;
+    width:100%;height:100%;
+    overflow:hidden;
+  }
+  #main-content{
+    padding:12px;
+    padding-bottom:calc(12px + env(safe-area-inset-bottom));
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    height:calc(100vh - var(--topbar-h));
+  }
+
+  /* Stats grid - 2 columns */
+  .dash-grid{
+    grid-template-columns:repeat(2,1fr);
+    gap:10px;
+  }
+  .stat-card{padding:14px;gap:10px;}
+  .stat-icon{width:40px;height:40px;font-size:16px;border-radius:10px;}
+  .stat-value{font-size:18px;}
+  .stat-label{font-size:11px;}
+  .stat-sub{display:none;}
+
+  /* Dash row - stack vertically, prevent overlap */
+  .dash-row{flex-direction:column;overflow:visible;}
+  .dash-card{margin-bottom:12px;min-width:0 !important;width:100%;}
+  .dash-card-header{padding:12px 14px;font-size:13px;}
+
+  /* Table - horizontal scroll with indicator */
+  .table-wrapper{
+    margin:0 -12px;padding:0 12px;
+    position:relative;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .admin-table{font-size:12px;min-width:500px;}
+  .admin-table th,.admin-table td{padding:10px 8px;}
+
+  /* Toolbar - stack */
+  .page-toolbar{flex-direction:column;align-items:stretch;gap:8px;}
+  .toolbar-left,.toolbar-right{width:100%;}
+  .toolbar-left{flex-direction:column;}
+  .toolbar-left input[type="text"],
+  .toolbar-left select{width:100%;}
+  .toolbar-right{justify-content:flex-start;overflow-x:auto;}
+
+  /* Tab bar - scroll */
+  .tab-bar{margin:0 -12px 12px;padding:4px 12px;border-radius:0;border-left:0;border-right:0;}
+  .tab-item{padding:8px 14px;font-size:12px;}
+
+  /* Buttons */
+  .admin-btn,.admin-btn-cancel,.admin-btn-danger{
+    padding:10px 16px;font-size:12px;width:100%;justify-content:center;
+  }
+  .btn-xs{padding:6px 10px;font-size:11px;min-height:34px;}
+
+  /* Modal - full screen on mobile */
+  .modal-overlay{padding:0;align-items:flex-end;z-index:2000;}
+  .modal-box{
+    max-width:100%;border-radius:16px 16px 0 0;
+    max-height:85vh;padding:20px;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  /* Page toolbar buttons */
+  .page-toolbar .admin-btn{max-width:200px;}
+
+  /* 防止固定定位元素重叠 */
+  .sidebar-backdrop{z-index:999;}
+}
+
+/* ===== RESPONSIVE - SMALL MOBILE ===== */
+@media(max-width:400px){
+  .dash-grid{grid-template-columns:1fr;}
+  .login-box{padding:28px 20px;}
+  .login-logo h1{font-size:24px;}
+  .stat-card{padding:12px;}
+  .stat-value{font-size:16px;}
+  .stat-icon{width:36px;height:36px;font-size:14px;}
+}
+
+/* ===== ANIMATIONS ===== */
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes glow{0%,100%{box-shadow:0 0 5px var(--p)}50%{box-shadow:0 0 20px var(--p),0 0 40px var(--p)}}
+@keyframes neonFlicker{
+  0%,19%,21%,23%,25%,54%,56%,100%{opacity:1;}
+  20%,24%,55%{opacity:.6;}
+}
+
+/* ===== NEON GLOW UTILITIES ===== */
+.neon-text{
+  text-shadow:0 0 7px var(--p),0 0 15px var(--p),0 0 30px var(--p);
+}
+.neon-border{
+  border:1px solid var(--p);
+  box-shadow:var(--glow-p);
+}
+
+/* ===== LOADING SPINNER ===== */
+.cyber-spinner{
+  width:40px;height:40px;border-radius:50%;
+  border:3px solid var(--bd);
+  border-top-color:var(--p);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== TOAST ===== */
+.admin-toast{
+  backdrop-filter:blur(10px);
+  border-radius:10px !important;
+}
+
+/* ===== SCROLLBAR GLOBAL ===== */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(0,245,255,.2);border-radius:2px;}
+::-webkit-scrollbar-thumb:hover{background:rgba(0,245,255,.4);}
+</style>
+</head>
+<body>
+
+<!-- Scanline overlay -->
+<div class="scanline-overlay"></div>
+
+<!-- ===== LOGIN PAGE ===== -->
+<div id="login-page">
+  <canvas id="matrix-canvas"></canvas>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="login-box">
+    <div class="login-logo">
+      <h1>LUOSHENG</h1>
+      <div class="version-tag">SYSTEM V8.0</div>
+      <p>罗圣纪元 · 后台管理系统</p>
+    </div>
+    <form id="login-form" autocomplete="off">
+      <div class="login-field">
+        <label>管理员账号</label>
+        <i class="fa-solid fa-user field-icon"></i>
+        <input type="text" id="login-username" placeholder="请输入管理员账号" autocomplete="off" required>
+      </div>
+      <div class="login-field">
+        <label>密码</label>
+        <i class="fa-solid fa-lock field-icon"></i>
+        <input type="password" id="login-password" placeholder="请输入密码" autocomplete="off" required>
+        <span class="login-pwd-toggle" id="toggle-pwd"><i class="fa-solid fa-eye"></i></span>
+      </div>
+      <button type="submit" class="login-btn">
+        <i class="fa-solid fa-right-to-bracket"></i> 进入系统
+      </button>
+    </form>
+    <div class="login-footer">
+      &copy; 2026 祁阳市罗圣纪元互联网科技有限责任公司
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="main-app">
+
+  <!-- SIDEBAR BACKDROP (mobile) -->
+  <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="AdminAPI.closeMobileSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside id="sidebar">
+    <div class="sb-brand">
+      <div class="sb-brand-icon">LS</div>
+      <span>LUOSHENG</span>
+    </div>
+    <nav class="sb-nav">
+      <!-- 概览 -->
+      <div class="sb-menu-group open" data-group="overview">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-gauge-high menu-icon"></i>
+          <span class="menu-label">概览</span>
+          <span class="menu-badge" style="background:var(--ok);">●</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item active" data-page="dashboard" onclick="navigate('dashboard')">
+            <i class="fa-solid fa-chart-pie"></i><span class="sub-label">数据看板</span>
+          </div>
+          <div class="sb-sub-item" data-page="decision" onclick="navigate('decision')">
+            <i class="fa-solid fa-compass"></i><span class="sub-label">决策中心</span>
+          </div>
+          <div class="sb-sub-item" data-page="realtime" onclick="navigate('realtime')">
+            <i class="fa-solid fa-location-dot"></i><span class="sub-label">实时定位</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 用户管理 -->
+      <div class="sb-menu-group" data-group="users">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-users menu-icon"></i>
+          <span class="menu-label">用户管理</span>
+          <span class="menu-badge" style="background:var(--ok);">--</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item" data-page="online-users" onclick="navigate('online-users')">
+            <i class="fa-solid fa-circle" style="color:var(--ok);font-size:8px;"></i><span class="sub-label">在线用户</span>
+          </div>
+          <div class="sb-sub-item" data-page="user-tags" onclick="navigate('user-tags')">
+            <i class="fa-solid fa-tags"></i><span class="sub-label">用户标签</span>
+          </div>
+          <div class="sb-sub-item" data-page="blacklist" onclick="navigate('blacklist')">
+            <i class="fa-solid fa-ban"></i><span class="sub-label">黑名单管理</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 智能体管理 -->
+      <div class="sb-menu-group" data-group="agent">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-robot menu-icon"></i>
+          <span class="menu-label">智能体管理</span>
+          <span class="menu-badge" style="background:var(--p2);">AI</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item" data-page="agent" onclick="navigate('agent')">
+            <i class="fa-solid fa-brain"></i><span class="sub-label">AI智能体</span>
+          </div>
+          <div class="sb-sub-item" data-page="chat-logs" onclick="navigate('chat-logs')">
+            <i class="fa-solid fa-comments"></i><span class="sub-label">对话记录</span>
+          </div>
+          <div class="sb-sub-item" data-page="model-config" onclick="navigate('model-config')">
+            <i class="fa-solid fa-sliders"></i><span class="sub-label">模型配置</span>
+          </div>
+          <div class="sb-sub-item" data-page="knowledge" onclick="navigate('knowledge')">
+            <i class="fa-solid fa-book"></i><span class="sub-label">知识库管理</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 财务中心 -->
+      <div class="sb-menu-group" data-group="finance">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-coins menu-icon"></i>
+          <span class="menu-label">财务中心</span>
+          <span class="menu-badge" style="background:var(--warn);">--</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item" data-page="packages" onclick="navigate('packages')">
+            <i class="fa-solid fa-bolt"></i><span class="sub-label">圣力套餐</span>
+          </div>
+          <div class="sb-sub-item" data-page="boss-cards" onclick="navigate('boss-cards')">
+            <i class="fa-solid fa-crown"></i><span class="sub-label">Boss充值卡</span>
+          </div>
+          <div class="sb-sub-item" data-page="payment" onclick="navigate('payment')">
+            <i class="fa-solid fa-credit-card"></i><span class="sub-label">支付</span>
+          </div>
+          <div class="sb-sub-item" data-page="recharge-manage" onclick="navigate('recharge-manage')">
+            <i class="fa-solid fa-gem"></i><span class="sub-label">充值管理</span>
+          </div>
+          <div class="sb-sub-item" data-page="orders" onclick="navigate('orders')">
+            <i class="fa-solid fa-receipt"></i><span class="sub-label">订单管理</span>
+          </div>
+          <div class="sb-sub-item" data-page="commission" onclick="navigate('commission')">
+            <i class="fa-solid fa-hand-holding-dollar"></i><span class="sub-label">佣金记录</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 内容运营 -->
+      <div class="sb-menu-group" data-group="content">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-newspaper menu-icon"></i>
+          <span class="menu-label">内容运营</span>
+          <span class="menu-badge" style="background:var(--nd);">OK</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item" data-page="announcements" onclick="navigate('announcements')">
+            <i class="fa-solid fa-bullhorn"></i><span class="sub-label">公告管理</span>
+          </div>
+          <div class="sb-sub-item" data-page="content-review" onclick="navigate('content-review')">
+            <i class="fa-solid fa-clipboard-check"></i><span class="sub-label">内容审核</span>
+          </div>
+          <div class="sb-sub-item" data-page="push-messages" onclick="navigate('push-messages')">
+            <i class="fa-solid fa-paper-plane"></i><span class="sub-label">消息推送</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 系统管理 -->
+      <div class="sb-menu-group" data-group="system">
+        <div class="sb-menu-header" onclick="AdminAPI.toggleMenuGroup(this)">
+          <i class="fa-solid fa-gear menu-icon"></i>
+          <span class="menu-label">系统管理</span>
+          <span class="menu-badge" style="background:var(--p2);">SYS</span>
+          <i class="fa-solid fa-chevron-right menu-arrow"></i>
+        </div>
+        <div class="sb-menu-items">
+          <div class="sb-sub-item" data-page="monitor" onclick="navigate('monitor')">
+            <i class="fa-solid fa-heart-pulse"></i><span class="sub-label">运行监控</span>
+          </div>
+          <div class="sb-sub-item" data-page="settings" onclick="navigate('settings')">
+            <i class="fa-solid fa-gear"></i><span class="sub-label">系统设置</span>
+          </div>
+          <div class="sb-sub-item" data-page="op-logs" onclick="navigate('op-logs')">
+            <i class="fa-solid fa-list-check"></i><span class="sub-label">操作日志</span>
+          </div>
+          <div class="sb-sub-item" data-page="login-logs" onclick="navigate('login-logs')">
+            <i class="fa-solid fa-right-to-bracket"></i><span class="sub-label">登录记录</span>
+          </div>
+          <div class="sb-sub-item" data-page="api-monitor" onclick="navigate('api-monitor')">
+            <i class="fa-solid fa-chart-line"></i><span class="sub-label">API监控</span>
+          </div>
+          <div class="sb-sub-item" data-page="backup" onclick="navigate('backup')">
+            <i class="fa-solid fa-database"></i><span class="sub-label">数据备份</span>
+          </div>
+        </div>
+      </div>
+    </nav>
+    <div class="sb-footer">
+      <div class="sb-footer-link" onclick="window.open('https://h0int.github.io/lsjy-app/','_blank')">
+        <i class="fa-solid fa-arrow-left"></i><span>返回前台</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CONTENT AREA -->
+  <div id="content-area" style="flex:1;display:flex;flex-direction:column;overflow:hidden;">
+    <!-- TOPBAR -->
+    <header id="topbar">
+      <div class="topbar-left">
+        <button id="mobile-menu"><i class="fa-solid fa-bars"></i></button>
+        <button id="sidebar-toggle"><i class="fa-solid fa-angles-left"></i></button>
+        <span id="page-title">数据看板</span>
+      </div>
+      <div class="topbar-right">
+        <span id="admin-info"></span>
+        <button class="topbar-btn" onclick="AdminAPI.setTheme(document.body.classList.contains('theme-light')?'dark':'light')" title="切换主题"><i class="fa-solid fa-circle-half-stroke"></i></button>
+        <button id="btn-logout"><i class="fa-solid fa-right-from-bracket"></i> <span class="btn-text">退出</span></button>
+      </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main id="main-content">
+      <!-- 动态渲染 -->
+    </main>
+  </div>
+</div>
+
+<script src="admin-app.js?v=9.5"></script>
+</body>
+</html>
