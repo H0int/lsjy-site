@@ -13,6 +13,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 
+// ★ P0安全升级：bcryptjs 密码加密（纯JS实现，无需原生编译）
+let bcrypt = null;
+try { bcrypt = require('bcryptjs'); } catch (e) { console.warn('[bcrypt] bcryptjs 未安装，使用 SHA256 降级方案'); }
+
 // 加载环境变量
 require('dotenv').config();
 
@@ -67,6 +71,45 @@ app.use((req, res, next) => {
   next();
 });
 
+// ★ P0安全升级：XSS输入过滤中间件
+function sanitizeValue(val) {
+  if (typeof val !== 'string') return val;
+  return val
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+=/gi, '');
+}
+function sanitizeObject(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(item => sanitizeObject(item));
+  const result = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string') {
+      result[k] = sanitizeValue(v);
+    } else if (typeof v === 'object' && v !== null) {
+      result[k] = sanitizeObject(v);
+    } else {
+      result[k] = v;
+    }
+  }
+  return result;
+}
+// 对 POST/PUT/PATCH 请求的 body 进行 XSS 过滤
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body && typeof req.body === 'object') {
+    // 不过滤富文本/代码类接口（由具体路由自行处理）
+    const skipPaths = ['/api/v1/ai/', '/api/v1/agent/', '/api/v1/knowledge/'];
+    const shouldSkip = skipPaths.some(p => req.path.startsWith(p));
+    if (!shouldSkip) {
+      req.body = sanitizeObject(req.body);
+    }
+  }
+  next();
+});
+
 // ===== 安全加固：轻量级内存限流器 =====
 const _rateBuckets = new Map();
 function rateLimit(key, maxHits, windowMs) {
@@ -94,6 +137,44 @@ function auditLog(type, detail) {
   log.push({ time: new Date().toISOString(), type, detail });
   saveAuditLog(log);
   console.log(`[AUDIT][${type}]`, JSON.stringify(detail));
+}
+
+// ★ P0安全升级：统一错误码体系（按升级方案分段规划）
+const ERR_CODES = {
+  // 1000-1999: 用户相关错误
+  USER_NOT_FOUND: 1001,
+  USER_DISABLED: 1002,
+  USER_BANNED: 1003,
+  USER_EXISTS: 1004,
+  PASSWORD_WRONG: 1005,
+  PASSWORD_TOO_SHORT: 1006,
+  PHONE_FORMAT_ERROR: 1007,
+  SMS_CODE_ERROR: 1008,
+  SMS_CODE_EXPIRED: 1009,
+  LOGIN_LOCKED: 1010,
+  TOKEN_EXPIRED: 1011,
+  TOKEN_INVALID: 1012,
+  // 2000-2999: 业务相关错误
+  COINS_INSUFFICIENT: 2001,
+  ORDER_NOT_FOUND: 2002,
+  ORDER_STATUS_ERROR: 2003,
+  SUBSCRIPTION_EXPIRED: 2004,
+  PLAN_NOT_FOUND: 2005,
+  WITHDRAW_MIN_ERROR: 2006,
+  // 3000-3999: 系统相关错误
+  SYSTEM_ERROR: 3001,
+  DB_ERROR: 3002,
+  FILE_ERROR: 3003,
+  RATE_LIMITED: 3004,
+  // 4000-4999: 第三方服务错误
+  AI_SERVICE_ERROR: 4001,
+  SMS_SERVICE_ERROR: 4002,
+  PAY_SERVICE_ERROR: 4003,
+  OSS_SERVICE_ERROR: 4004,
+};
+// 统一错误响应辅助函数
+function errRes(code, message, httpStatus) {
+  return { status: httpStatus || 400, body: { code: code, message: message, data: null } };
 }
 
 // ===== 设备指纹管理 =====
@@ -720,19 +801,36 @@ const usersStore = [
 ];
 
 // ===== 用户存储统一：内存池 usersStore 为唯一数据源，data/users.json 为持久化层 =====
-// 密码加盐哈希（sha256$salt$hash），杜绝明文存储
+// ★ P0安全升级：密码加密 — 优先 bcrypt，降级 SHA256 加盐
+const BCRYPT_ROUNDS = 12;
 function hashUserPassword(password, salt) {
+  // 新密码统一使用 bcrypt 哈希
+  if (bcrypt) {
+    return bcrypt.hashSync(String(password), BCRYPT_ROUNDS);
+  }
+  // 降级方案：SHA256 加盐（兼容未安装 bcryptjs 的场景）
   salt = salt || crypto.randomBytes(8).toString('hex');
   const hash = crypto.createHash('sha256').update(`${salt}:${String(password)}`).digest('hex');
   return `sha256$${salt}$${hash}`;
 }
 function verifyUserPassword(password, stored) {
   if (stored == null) return false;
+  // bcrypt 哈希（以 $2a$ 或 $2b$ 开头）
+  if (bcrypt && typeof stored === 'string' && (stored.startsWith('$2a$') || stored.startsWith('$2b$'))) {
+    return bcrypt.compareSync(String(password), stored);
+  }
+  // SHA256 加盐哈希（兼容旧密码）
   if (typeof stored === 'string' && stored.startsWith('sha256$')) {
     const salt = stored.split('$')[1];
-    return hashUserPassword(password, salt) === stored;
+    return hashUserPasswordSha256(password, salt) === stored;
   }
   return String(password) === String(stored); // 兼容历史明文密码
+}
+// SHA256 加盐（仅用于旧密码验证，新密码不再使用）
+function hashUserPasswordSha256(password, salt) {
+  salt = salt || crypto.randomBytes(8).toString('hex');
+  const hash = crypto.createHash('sha256').update(`${salt}:${String(password)}`).digest('hex');
+  return `sha256$${salt}$${hash}`;
 }
 function stripPassword(u) {
   if (!u) return u;
@@ -4468,8 +4566,8 @@ app.post('/api/v1/auth/login', (req, res) => {
   }
 
   if (user && verifyUserPassword(password, user.password)) {
-    // 历史明文密码首次登录自动升级为加盐哈希存储
-    if (user.password && !String(user.password).startsWith('sha256$')) {
+    // ★ 安全升级：旧密码格式首次登录自动升级为 bcrypt
+    if (user.password && !String(user.password).startsWith('$2a$') && !String(user.password).startsWith('$2b$')) {
       user.password = hashUserPassword(password);
     }
     if (user.status === 'approved' || user.status === 'active') {
@@ -4862,6 +4960,89 @@ app.post('/api/v1/auth/change-password', authCheck, (req, res) => {
   auditLog('PASSWORD_CHANGED', { userId, username: user.username });
   log(`[密码修改] 用户 ${user.username}(ID:${userId}) 已修改密码`);
   res.json({ code: 0, message: '密码修改成功', data: null });
+});
+
+// ★ P0安全升级：找回密码 API（手机号 + 短信验证码）
+// 第一步：发送找回密码验证码
+app.post('/api/v1/auth/forgot-password/send-code', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ code: ERR_CODES.PHONE_FORMAT_ERROR, message: '请输入手机号', data: null });
+  if (!/^1[3-9]\d{9}$/.test(phone)) return res.status(400).json({ code: ERR_CODES.PHONE_FORMAT_ERROR, message: '手机号格式错误', data: null });
+  // 检查手机号是否已注册
+  const user = usersStore.find(u => u.phone === phone);
+  if (!user) return res.status(404).json({ code: ERR_CODES.USER_NOT_FOUND, message: '该手机号未注册', data: null });
+  // 频率限制：60秒内只能发一次
+  const smsCodeFile = path.join(__dirname, 'data', 'sms_codes.json');
+  let smsCodes = [];
+  try { smsCodes = JSON.parse(fs.readFileSync(smsCodeFile, 'utf8')); } catch {}
+  const recentCode = smsCodes.find(c => c.phone === phone && c.purpose === 'forgot' && (Date.now() - c.createdAt) < 60000);
+  if (recentCode) return res.status(429).json({ code: ERR_CODES.RATE_LIMITED, message: '发送过于频繁，请60秒后再试', data: null });
+  // 生成6位随机验证码
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  smsCodes.push({ phone, code, purpose: 'forgot', createdAt: Date.now(), used: false, ip: getClientIp(req) });
+  fs.writeFileSync(smsCodeFile, JSON.stringify(smsCodes, null, 2));
+  // 发送短信（复用现有短信发送逻辑）
+  const smsAccessKey = process.env.ALIYUN_SMS_ACCESS_KEY || '';
+  const smsSecretKey = process.env.ALIYUN_SMS_SECRET_KEY || '';
+  const smsSignName = process.env.ALIYUN_SMS_SIGN_NAME || '罗圣纪元';
+  const smsTemplateCode = process.env.ALIYUN_SMS_TEMPLATE_CODE || '';
+  if (!smsAccessKey || !smsSecretKey || !smsTemplateCode) {
+    log(`[找回密码验证码] 手机号:${phone} 验证码:${code} IP:${getClientIp(req)} (未配置短信服务)`);
+    auditLog('FORGOT_PW_CODE', { phone, ip: getClientIp(req), status: 'dev_mode' });
+    return res.json({ code: 0, message: '验证码已发送（开发模式）', data: { devCode: process.env.NODE_ENV === 'production' ? undefined : code } });
+  }
+  try {
+    const endpoint = 'https://dysmsapi.aliyuncs.com';
+    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const nonce = `sms_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    const params = { Action: 'SendSms', Version: '2017-05-25', Format: 'JSON', AccessKeyId: smsAccessKey, SignatureMethod: 'HMAC-SHA1', SignatureVersion: '1.0', SignatureNonce: nonce, Timestamp: timestamp, PhoneNumbers: phone, SignName: smsSignName, TemplateCode: smsTemplateCode, TemplateParam: JSON.stringify({ code }) };
+    const sortedKeys = Object.keys(params).sort();
+    const queryStr = sortedKeys.map(k => `${encodeURIComponent(k)}=${encodeURIComponent(params[k])}`).join('&');
+    const stringToSign = `GET&${encodeURIComponent('/')}&${encodeURIComponent(queryStr)}`;
+    const signature = crypto.createHmac('sha1', smsSecretKey + '&').update(stringToSign).digest('base64');
+    params.Signature = signature;
+    const url = `${endpoint}/?${Object.entries(params).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')}`;
+    const response = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+    const data = await response.json();
+    if (data.Code === 'OK' || data.code === 'OK') {
+      auditLog('FORGOT_PW_CODE_SENT', { phone, ip: getClientIp(req), status: 'sent' });
+      res.json({ code: 0, message: '验证码已发送，请查看手机短信', data: {} });
+    } else {
+      res.status(500).json({ code: ERR_CODES.SMS_SERVICE_ERROR, message: `短信发送失败：${data.Message || '请稍后重试'}`, data: null });
+    }
+  } catch (e) {
+    res.status(500).json({ code: ERR_CODES.SMS_SERVICE_ERROR, message: '短信发送失败，请稍后重试', data: null });
+  }
+});
+
+// 第二步：验证验证码 + 设置新密码
+app.post('/api/v1/auth/forgot-password/reset', (req, res) => {
+  const { phone, code, newPassword } = req.body;
+  if (!phone || !code || !newPassword) return res.status(400).json({ code: 400, message: '请提供手机号、验证码和新密码', data: null });
+  if (!/^1[3-9]\d{9}$/.test(phone)) return res.status(400).json({ code: ERR_CODES.PHONE_FORMAT_ERROR, message: '手机号格式错误', data: null });
+  if (newPassword.length < 6) return res.status(400).json({ code: ERR_CODES.PASSWORD_TOO_SHORT, message: '新密码长度不能少于6位', data: null });
+  // 检查手机号是否已注册
+  const user = usersStore.find(u => u.phone === phone);
+  if (!user) return res.status(404).json({ code: ERR_CODES.USER_NOT_FOUND, message: '该手机号未注册', data: null });
+  // 验证码校验
+  const smsCodeFile = path.join(__dirname, 'data', 'sms_codes.json');
+  let smsCodes = [];
+  try { smsCodes = JSON.parse(fs.readFileSync(smsCodeFile, 'utf8')); } catch {}
+  const codeRecord = smsCodes.find(c => c.phone === phone && c.purpose === 'forgot' && c.code === code && !c.used);
+  if (!codeRecord) return res.status(400).json({ code: ERR_CODES.SMS_CODE_ERROR, message: '验证码错误', data: null });
+  if (Date.now() - codeRecord.createdAt > 5 * 60 * 1000) return res.status(400).json({ code: ERR_CODES.SMS_CODE_EXPIRED, message: '验证码已过期，请重新获取', data: null });
+  // 标记验证码已使用
+  codeRecord.used = true;
+  fs.writeFileSync(smsCodeFile, JSON.stringify(smsCodes, null, 2));
+  // 更新密码
+  user.password = hashUserPassword(newPassword);
+  persistUsersStore();
+  const fileUsers = loadFileUsers();
+  const fileUser = fileUsers.find(u => Number(u.id) === Number(user.id));
+  if (fileUser) { fileUser.password = hashUserPassword(newPassword); saveFileUsers(fileUsers); }
+  auditLog('FORGOT_PW_RESET', { userId: user.id, phone });
+  log(`[找回密码] 用户 ${user.username}(ID:${user.id}) 已通过手机验证码重置密码`);
+  res.json({ code: 0, message: '密码重置成功，请使用新密码登录', data: null });
 });
 
 // ============================================================
@@ -10950,6 +11131,58 @@ app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);
   res.status(500).json({ code: 500, message: '服务器内部错误: ' + (err.message || '未知错误'), data: null });
 });
+
+// ★ P0安全升级：数据自动备份定时任务（每日凌晨3点备份 data/ 目录）
+const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
+function performDataBackup() {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const timeStr = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+    const backupName = `backup_${dateStr}_${timeStr}`;
+    const backupPath = path.join(BACKUP_DIR, backupName);
+    fs.mkdirSync(backupPath, { recursive: true });
+    // 备份核心数据文件
+    const dataDir = path.join(__dirname, 'data');
+    const filesToBackup = ['users.json', 'recharge_orders.json', 'coin_transactions.json', 'security_audit.json', 'devices.json', 'referrals.json', 'config.json'];
+    let backedUp = 0;
+    for (const f of filesToBackup) {
+      const src = path.join(dataDir, f);
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, path.join(backupPath, f));
+        backedUp++;
+      }
+    }
+    // 清理 30 天前的旧备份
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    try {
+      const backups = fs.readdirSync(BACKUP_DIR).filter(d => d.startsWith('backup_'));
+      for (const d of backups) {
+        const full = path.join(BACKUP_DIR, d);
+        const stat = fs.statSync(full);
+        if (stat.isDirectory() && stat.mtimeMs < thirtyDaysAgo) {
+          fs.rmSync(full, { recursive: true, force: true });
+        }
+      }
+    } catch (e) {}
+    log(`[备份] 完成 ${backupName}，备份 ${backedUp} 个文件`);
+    auditLog('DATA_BACKUP', { name: backupName, files: backedUp });
+  } catch (e) {
+    console.error('[备份] 失败:', e.message);
+  }
+}
+// 每小时检查一次，如果到了凌晨3点就执行备份
+let _lastBackupDate = '';
+setInterval(() => {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  if (now.getHours() === 3 && _lastBackupDate !== today) {
+    _lastBackupDate = today;
+    performDataBackup();
+  }
+}, 3600000).unref(); // 每小时检查一次
+// 启动时立即执行一次备份
+setTimeout(performDataBackup, 10000);
 
 // ===== 启动服务器 =====
 app.listen(PORT, '0.0.0.0', () => {
