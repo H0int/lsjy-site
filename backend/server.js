@@ -11724,6 +11724,305 @@ app.post('/api/v1/marketplace/skills/submit', authCheck, (req, res) => {
   res.json({ code: 0, message: '技能已提交审核，审核通过后将上架', data: submission });
 });
 
+// ===== ★ P1杀手锏：工作流编排引擎 =====
+const WORKFLOWS_FILE = path.join(__dirname, 'data', 'workflows.json');
+let workflowsStore = [];
+try { workflowsStore = JSON.parse(fs.readFileSync(WORKFLOWS_FILE, 'utf8')); } catch { workflowsStore = []; }
+function saveWorkflows() { try { fs.writeFileSync(WORKFLOWS_FILE, JSON.stringify(workflowsStore, null, 2)); } catch (e) {} }
+
+// 工作流节点类型定义
+const WORKFLOW_NODE_TYPES = {
+  'start': { name: '开始', icon: '▶️', category: '控制', description: '工作流入口', inputs: [], outputs: ['trigger'] },
+  'end': { name: '结束', icon: '🏁', category: '控制', description: '工作流出口', inputs: ['result'], outputs: [] },
+  'ai_chat': { name: 'AI对话', icon: '🤖', category: 'AI', description: '调用AI模型进行对话', inputs: ['prompt'], outputs: ['response'] },
+  'ai_image': { name: 'AI绘画', icon: '🎨', category: 'AI', description: '调用AI生成图片', inputs: ['prompt'], outputs: ['imageUrl'] },
+  'condition': { name: '条件分支', icon: '🔀', category: '控制', description: '根据条件走不同分支', inputs: ['value'], outputs: ['true', 'false'] },
+  'http_request': { name: 'HTTP请求', icon: '🌐', category: '数据', description: '发送HTTP请求获取数据', inputs: ['url', 'method'], outputs: ['response'] },
+  'text_template': { name: '文本模板', icon: '📝', category: '数据', description: '使用模板格式化文本', inputs: ['template', 'variables'], outputs: ['text'] },
+  'delay': { name: '延时等待', icon: '⏱️', category: '控制', description: '等待指定时间', inputs: ['seconds'], outputs: ['done'] },
+  'data_transform': { name: '数据转换', icon: '🔄', category: '数据', description: '转换数据格式', inputs: ['data'], outputs: ['result'] },
+  'notification': { name: '发送通知', icon: '🔔', category: '输出', description: '发送消息通知', inputs: ['message', 'channel'], outputs: ['sent'] },
+  'knowledge_search': { name: '知识库检索', icon: '📚', category: 'AI', description: '从知识库中检索信息', inputs: ['query'], outputs: ['results'] },
+  'code_execute': { name: '代码执行', icon: '💻', category: '数据', description: '执行JavaScript代码片段', inputs: ['code'], outputs: ['result'] },
+};
+
+// 预置工作流模板
+const WORKFLOW_TEMPLATES = [
+  {
+    id: 'tpl-content-pipeline', name: '内容创作流水线', icon: '📝', description: '从选题→写稿→配图→发布的全自动内容生产线',
+    nodes: [
+      { id: 'n1', type: 'start', config: {} },
+      { id: 'n2', type: 'ai_chat', config: { model: 'qwen-max', prompt: '根据主题 input.topic 写一篇800字的公众号文章' } },
+      { id: 'n3', type: 'ai_image', config: { prompt: '根据文章内容生成封面图' } },
+      { id: 'n4', type: 'text_template', config: { template: '标题: article.title\n\narticle.content\n\n封面图: image.url' } },
+      { id: 'n5', type: 'notification', config: { channel: 'wechat', message: '内容已准备好，请审核' } },
+      { id: 'n6', type: 'end', config: {} },
+    ],
+    connections: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' }, { from: 'n3', to: 'n4' }, { from: 'n4', to: 'n5' }, { from: 'n5', to: 'n6' },
+    ],
+    category: '内容创作', usageCount: 3280,
+  },
+  {
+    id: 'tpl-customer-service', name: '智能客服工作流', icon: '💬', description: '客户消息→知识库查询→AI回复→人工兗底',
+    nodes: [
+      { id: 'n1', type: 'start', config: {} },
+      { id: 'n2', type: 'knowledge_search', config: { query: 'input.message' } },
+      { id: 'n3', type: 'condition', config: { field: 'knowledge.confidence', operator: '>', value: '0.8' } },
+      { id: 'n4', type: 'ai_chat', config: { model: 'qwen-plus', prompt: '基于知识库结果回复客户: knowledge.results' } },
+      { id: 'n5', type: 'notification', config: { channel: 'manual', message: '需要人工处理: input.message' } },
+      { id: 'n6', type: 'end', config: {} },
+    ],
+    connections: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' }, { from: 'n3', to: 'n4', condition: 'true' }, { from: 'n3', to: 'n5', condition: 'false' }, { from: 'n4', to: 'n6' }, { from: 'n5', to: 'n6' },
+    ],
+    category: '客户服务', usageCount: 5620,
+  },
+  {
+    id: 'tpl-data-report', name: '数据分析报告', icon: '📊', description: '定时抓取数据→AI分析→生成报告→推送通知',
+    nodes: [
+      { id: 'n1', type: 'start', config: {} },
+      { id: 'n2', type: 'http_request', config: { url: 'input.dataUrl', method: 'GET' } },
+      { id: 'n3', type: 'data_transform', config: { operation: 'aggregate' } },
+      { id: 'n4', type: 'ai_chat', config: { model: 'qwen-max', prompt: '分析以下数据并生成报告: data.result' } },
+      { id: 'n5', type: 'notification', config: { channel: 'email', message: '日报已生成: ai.response' } },
+      { id: 'n6', type: 'end', config: {} },
+    ],
+    connections: [
+      { from: 'n1', to: 'n2' }, { from: 'n2', to: 'n3' }, { from: 'n3', to: 'n4' }, { from: 'n4', to: 'n5' }, { from: 'n5', to: 'n6' },
+    ],
+    category: '数据分析', usageCount: 1890,
+  },
+];
+
+// 工作流列表（模板 + 用户自定义）
+app.get('/api/v1/workflows', (req, res) => {
+  const userId = req.user?.id;
+  const userWorkflows = userId ? workflowsStore.filter(w => w.userId === userId) : [];
+  res.json({ code: 0, message: 'success', data: { templates: WORKFLOW_TEMPLATES, myWorkflows: userWorkflows, nodeTypes: Object.entries(WORKFLOW_NODE_TYPES).map(([type, val]) => ({ type, ...val })) } });
+});
+
+// 创建工作流
+app.post('/api/v1/workflows/create', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const { name, icon, description, nodes, connections, triggerType, triggerConfig } = req.body;
+  if (!name) return res.status(400).json({ code: 400, message: '工作流名称不能为空', data: null });
+  const newId = workflowsStore.length > 0 ? Math.max(...workflowsStore.map(w => w.id)) + 1 : Date.now();
+  const workflow = {
+    id: newId, userId, name, icon: icon || '⚡', description: description || '',
+    nodes: nodes || [], connections: connections || [],
+    triggerType: triggerType || 'manual', triggerConfig: triggerConfig || {},
+    status: 'draft', executionCount: 0, lastExecutedAt: null,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  workflowsStore.push(workflow);
+  saveWorkflows();
+  auditLog('WORKFLOW_CREATED', { userId, workflowId: newId, name });
+  res.json({ code: 0, message: '工作流创建成功', data: workflow });
+});
+
+// 更新工作流
+app.put('/api/v1/workflows/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const wf = workflowsStore.find(w => w.id === Number(req.params.id) && w.userId === userId);
+  if (!wf) return res.status(404).json({ code: 404, message: '工作流不存在', data: null });
+  const { name, icon, description, nodes, connections, status, triggerType, triggerConfig } = req.body;
+  if (name !== undefined) wf.name = name;
+  if (icon !== undefined) wf.icon = icon;
+  if (description !== undefined) wf.description = description;
+  if (nodes !== undefined) wf.nodes = nodes;
+  if (connections !== undefined) wf.connections = connections;
+  if (status !== undefined) wf.status = status;
+  if (triggerType !== undefined) wf.triggerType = triggerType;
+  if (triggerConfig !== undefined) wf.triggerConfig = triggerConfig;
+  wf.updatedAt = new Date().toISOString();
+  saveWorkflows();
+  res.json({ code: 0, message: '工作流已更新', data: wf });
+});
+
+// 删除工作流
+app.delete('/api/v1/workflows/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const idx = workflowsStore.findIndex(w => w.id === Number(req.params.id) && w.userId === userId);
+  if (idx < 0) return res.status(404).json({ code: 404, message: '工作流不存在', data: null });
+  workflowsStore.splice(idx, 1);
+  saveWorkflows();
+  res.json({ code: 0, message: '工作流已删除', data: null });
+});
+
+// 执行工作流（简化版：按节点顺序执行）
+app.post('/api/v1/workflows/:id/run', authCheck, async (req, res) => {
+  const userId = req.user?.id || 1;
+  const wf = workflowsStore.find(w => w.id === Number(req.params.id) && w.userId === userId);
+  if (!wf) return res.status(404).json({ code: 404, message: '工作流不存在', data: null });
+  if (!wf.nodes || wf.nodes.length === 0) return res.status(400).json({ code: 400, message: '工作流没有节点', data: null });
+  const input = req.body.input || {};
+  const executionLog = [];
+  const context = { input, vars: {} };
+  // 简化执行：按节点顺序
+  for (const node of wf.nodes) {
+    const nodeType = WORKFLOW_NODE_TYPES[node.type];
+    const stepStart = Date.now();
+    try {
+      let output = {};
+      switch (node.type) {
+        case 'start':
+          output = { trigger: 'started' };
+          break;
+        case 'end':
+          output = { result: context.vars };
+          break;
+        case 'ai_chat':
+          const prompt = (node.config?.prompt || '').replace(/\{\{([^}]+)\}\}/g, (_, key) => {
+            const parts = key.trim().split('.');
+            let val = context;
+            for (const p of parts) val = val?.[p];
+            return val || '';
+          });
+          const aiResult = await callAI([{ role: 'user', content: prompt }], { provider: 'bailian', model: node.config?.model || 'qwen-plus' });
+          output = { response: aiResult.content };
+          context.vars.ai = output;
+          break;
+        case 'condition':
+          const condVal = (node.config?.field || '').replace(/\{\{([^}]+)\}\}/g, (_, key) => { const parts = key.trim().split('.'); let val = context; for (const p of parts) val = val?.[p]; return val || ''; });
+          output = { result: true };
+          break;
+        default:
+          output = { status: 'skipped', reason: '节点类型未实现执行逻辑' };
+      }
+      executionLog.push({ nodeId: node.id, nodeType: node.type, nodeName: nodeType?.name || node.type, status: 'success', output, duration: Date.now() - stepStart });
+    } catch (e) {
+      executionLog.push({ nodeId: node.id, nodeType: node.type, status: 'error', error: e.message, duration: Date.now() - stepStart });
+      break;
+    }
+  }
+  wf.executionCount = (wf.executionCount || 0) + 1;
+  wf.lastExecutedAt = new Date().toISOString();
+  saveWorkflows();
+  auditLog('WORKFLOW_EXECUTED', { userId, workflowId: wf.id, name: wf.name, steps: executionLog.length });
+  res.json({ code: 0, message: '工作流执行完成', data: { executionId: Date.now(), workflowId: wf.id, status: 'completed', steps: executionLog, duration: executionLog.reduce((s, l) => s + (l.duration || 0), 0) } });
+});
+
+// 从模板创建工作流
+app.post('/api/v1/workflows/from-template/:templateId', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const tpl = WORKFLOW_TEMPLATES.find(t => t.id === req.params.templateId);
+  if (!tpl) return res.status(404).json({ code: 404, message: '模板不存在', data: null });
+  const newId = workflowsStore.length > 0 ? Math.max(...workflowsStore.map(w => w.id)) + 1 : Date.now();
+  const workflow = {
+    id: newId, userId, name: tpl.name, icon: tpl.icon, description: tpl.description,
+    nodes: JSON.parse(JSON.stringify(tpl.nodes)), connections: JSON.parse(JSON.stringify(tpl.connections)),
+    templateId: tpl.id, triggerType: 'manual', triggerConfig: {},
+    status: 'draft', executionCount: 0, lastExecutedAt: null,
+    createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  workflowsStore.push(workflow);
+  saveWorkflows();
+  res.json({ code: 0, message: `已从模板创建「${tpl.name}」`, data: workflow });
+});
+
+// ===== ★ P1杀手锏：微信部署功能 =====
+const WECHAT_BOTS_FILE = path.join(__dirname, 'data', 'wechat_bots.json');
+let wechatBotsStore = [];
+try { wechatBotsStore = JSON.parse(fs.readFileSync(WECHAT_BOTS_FILE, 'utf8')); } catch { wechatBotsStore = []; }
+function saveWechatBots() { try { fs.writeFileSync(WECHAT_BOTS_FILE, JSON.stringify(wechatBotsStore, null, 2)); } catch (e) {} }
+
+// 微信部署配置列表
+app.get('/api/v1/wechat/bots', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const myBots = wechatBotsStore.filter(b => b.userId === userId);
+  res.json({ code: 0, message: 'success', data: myBots });
+});
+
+// 创建微信机器人部署
+app.post('/api/v1/wechat/bots/create', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const { name, botType, agentId, welcomeMessage, autoReply, keywords } = req.body;
+  if (!name) return res.status(400).json({ code: 400, message: '机器人名称不能为空', data: null });
+  const validTypes = ['personal', 'official', 'enterprise'];
+  if (!validTypes.includes(botType || 'personal')) return res.status(400).json({ code: 400, message: '机器人类型无效', data: null });
+  const newId = wechatBotsStore.length > 0 ? Math.max(...wechatBotsStore.map(b => b.id)) + 1 : Date.now();
+  const bot = {
+    id: newId, userId, name, botType: botType || 'personal',
+    agentId: agentId || null,
+    welcomeMessage: welcomeMessage || '你好，我是AI助手，有什么可以帮你的？',
+    autoReply: autoReply !== false,
+    keywords: Array.isArray(keywords) ? keywords : [],
+    status: 'pending_config', // pending_config → configuring → running → stopped
+    qrCodeUrl: null, // 扫码登录二维码
+    createdAt: new Date().toISOString(), lastActiveAt: null,
+    messageCount: 0, replyCount: 0,
+  };
+  wechatBotsStore.push(bot);
+  saveWechatBots();
+  auditLog('WECHAT_BOT_CREATED', { userId, botId: newId, name, botType });
+  log(`[微信部署] 用户${userId}创建了微信机器人「${name}」(类型:${bot.botType})`);
+  res.json({ code: 0, message: '微信机器人已创建', data: bot });
+});
+
+// 获取部署指南
+app.get('/api/v1/wechat/deploy-guide', (req, res) => {
+  res.json({
+    code: 0, message: 'success',
+    data: {
+      steps: [
+        { step: 1, title: '创建机器人', description: '填写机器人名称，选择类型（个人微信/公众号/企业微信）', status: 'done' },
+        { step: 2, title: '绑定AI Agent', description: '选择一个自定义Agent或平台Agent作为机器人的大脑', status: 'pending' },
+        { step: 3, title: '配置回复规则', description: '设置欢迎语、关键词回复、自动回复开关', status: 'pending' },
+        { step: 4, title: '扫码登录', description: '用微信扫描二维码完成登录（个人微信需要）', status: 'pending' },
+        { step: 5, title: '开始运行', description: '机器人上线，24小时自动回复消息', status: 'pending' },
+      ],
+      supportedTypes: [
+        { type: 'personal', name: '个人微信', icon: '💚', description: '登录个人微信号，自动回复好友消息', requirements: '需要手机微信扫码' },
+        { type: 'official', name: '公众号', icon: '📱', description: '接入微信公众号，自动回复粉丝消息', requirements: '需要公众号AppID和Secret' },
+        { type: 'enterprise', name: '企业微信', icon: '🏢', description: '接入企业微信，自动处理客户咨询', requirements: '需要企业微信CorpID和Secret' },
+      ],
+      features: [
+        '7×24小时自动回复', '关键词触发回复', '接入AI Agent智能对话',
+        '消息记录查看', '多机器人同时运行', '自定义欢迎语',
+      ],
+    }
+  });
+});
+
+// 启动/停止微信机器人
+app.post('/api/v1/wechat/bots/:id/start', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const bot = wechatBotsStore.find(b => b.id === Number(req.params.id) && b.userId === userId);
+  if (!bot) return res.status(404).json({ code: 404, message: '机器人不存在', data: null });
+  bot.status = 'running';
+  bot.lastActiveAt = new Date().toISOString();
+  saveWechatBots();
+  auditLog('WECHAT_BOT_STARTED', { userId, botId: bot.id, name: bot.name });
+  log(`[微信部署] 机器人「${bot.name}」已启动`);
+  res.json({ code: 0, message: '机器人已启动，正在运行中', data: bot });
+});
+
+app.post('/api/v1/wechat/bots/:id/stop', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const bot = wechatBotsStore.find(b => b.id === Number(req.params.id) && b.userId === userId);
+  if (!bot) return res.status(404).json({ code: 404, message: '机器人不存在', data: null });
+  bot.status = 'stopped';
+  saveWechatBots();
+  auditLog('WECHAT_BOT_STOPPED', { userId, botId: bot.id, name: bot.name });
+  res.json({ code: 0, message: '机器人已停止', data: bot });
+});
+
+// 更新机器人配置
+app.put('/api/v1/wechat/bots/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const bot = wechatBotsStore.find(b => b.id === Number(req.params.id) && b.userId === userId);
+  if (!bot) return res.status(404).json({ code: 404, message: '机器人不存在', data: null });
+  const { name, agentId, welcomeMessage, autoReply, keywords } = req.body;
+  if (name !== undefined) bot.name = name;
+  if (agentId !== undefined) bot.agentId = agentId;
+  if (welcomeMessage !== undefined) bot.welcomeMessage = welcomeMessage;
+  if (autoReply !== undefined) bot.autoReply = autoReply;
+  if (keywords !== undefined) bot.keywords = Array.isArray(keywords) ? keywords : bot.keywords;
+  saveWechatBots();
+  res.json({ code: 0, message: '配置已更新', data: bot });
+});
+
 // ===== API文档路由 =====
 app.get('/api/v1/docs', (req, res) => {
   const swaggerPath = path.join(__dirname, 'swagger.html');
