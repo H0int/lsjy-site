@@ -11524,6 +11524,206 @@ app.post('/api/v1/industry/diagnose', authCheck, async (req, res) => {
   }
 });
 
+// ===== ★ P1杀手锏：自定义 Agent 创建器 =====
+// 用户自定义 Agent 持久化
+const USER_AGENTS_FILE = path.join(__dirname, 'data', 'user_agents.json');
+let userAgentsStore = [];
+try { userAgentsStore = JSON.parse(fs.readFileSync(USER_AGENTS_FILE, 'utf8')); } catch { userAgentsStore = []; }
+function saveUserAgents() { try { fs.writeFileSync(USER_AGENTS_FILE, JSON.stringify(userAgentsStore, null, 2)); } catch (e) { console.error('[user-agents] 保存失败:', e.message); } }
+
+// 创建自定义 Agent
+app.post('/api/v1/user-agents/create', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const { name, icon, description, systemPrompt, model, category, skills, knowledgeBase } = req.body;
+  if (!name || !systemPrompt) return res.status(400).json({ code: 400, message: 'Agent名称和系统提示词不能为空', data: null });
+  if (name.length > 30) return res.status(400).json({ code: 400, message: 'Agent名称不能超过30个字符', data: null });
+  if (systemPrompt.length > 2000) return res.status(400).json({ code: 400, message: '系统提示词不能超过2000个字符', data: null });
+  const newId = userAgentsStore.length > 0 ? Math.max(...userAgentsStore.map(a => a.id)) + 1 : Date.now();
+  const agent = {
+    id: newId, userId, name, icon: icon || '🤖', description: description || '', systemPrompt,
+    model: model || 'qwen-plus', category: category || '自定义',
+    skills: Array.isArray(skills) ? skills : [],
+    knowledgeBase: knowledgeBase || null,
+    status: 'active', usageCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+  };
+  userAgentsStore.push(agent);
+  saveUserAgents();
+  auditLog('USER_AGENT_CREATED', { userId, agentId: newId, name });
+  log(`[自定义Agent] 用户${userId}创建了Agent「${name}」(ID:${newId})`);
+  res.json({ code: 0, message: 'Agent创建成功', data: agent });
+});
+
+// 获取我的自定义 Agent 列表
+app.get('/api/v1/user-agents', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const mine = userAgentsStore.filter(a => a.userId === userId);
+  res.json({ code: 0, message: 'success', data: mine });
+});
+
+// 获取单个自定义 Agent 详情
+app.get('/api/v1/user-agents/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const agent = userAgentsStore.find(a => a.id === Number(req.params.id) && a.userId === userId);
+  if (!agent) return res.status(404).json({ code: 404, message: 'Agent不存在', data: null });
+  res.json({ code: 0, message: 'success', data: agent });
+});
+
+// 更新自定义 Agent
+app.put('/api/v1/user-agents/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const agent = userAgentsStore.find(a => a.id === Number(req.params.id) && a.userId === userId);
+  if (!agent) return res.status(404).json({ code: 404, message: 'Agent不存在', data: null });
+  const { name, icon, description, systemPrompt, model, category, skills, knowledgeBase, status } = req.body;
+  if (name !== undefined) agent.name = name;
+  if (icon !== undefined) agent.icon = icon;
+  if (description !== undefined) agent.description = description;
+  if (systemPrompt !== undefined) agent.systemPrompt = systemPrompt;
+  if (model !== undefined) agent.model = model;
+  if (category !== undefined) agent.category = category;
+  if (skills !== undefined) agent.skills = Array.isArray(skills) ? skills : agent.skills;
+  if (knowledgeBase !== undefined) agent.knowledgeBase = knowledgeBase;
+  if (status !== undefined) agent.status = status;
+  agent.updatedAt = new Date().toISOString();
+  saveUserAgents();
+  auditLog('USER_AGENT_UPDATED', { userId, agentId: agent.id, name: agent.name });
+  res.json({ code: 0, message: 'Agent已更新', data: agent });
+});
+
+// 删除自定义 Agent
+app.delete('/api/v1/user-agents/:id', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const idx = userAgentsStore.findIndex(a => a.id === Number(req.params.id) && a.userId === userId);
+  if (idx < 0) return res.status(404).json({ code: 404, message: 'Agent不存在', data: null });
+  const removed = userAgentsStore.splice(idx, 1)[0];
+  saveUserAgents();
+  auditLog('USER_AGENT_DELETED', { userId, agentId: removed.id, name: removed.name });
+  res.json({ code: 0, message: 'Agent已删除', data: null });
+});
+
+// 与自定义 Agent 对话（流式）
+app.post('/api/v1/user-agents/:id/chat/stream', authCheck, async (req, res) => {
+  const userId = req.user?.id || 1;
+  const agent = userAgentsStore.find(a => a.id === Number(req.params.id) && a.userId === userId);
+  if (!agent) return res.status(404).json({ code: 404, message: 'Agent不存在', data: null });
+  const { message, history } = req.body;
+  if (!message) return res.status(400).json({ code: 400, message: '消息不能为空', data: null });
+  // 构造消息列表
+  const messages = [
+    { role: 'system', content: agent.systemPrompt },
+    ...(Array.isArray(history) ? history.map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content })) : []),
+    { role: 'user', content: message },
+  ];
+  // SSE 流式响应
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  try {
+    const result = await callAI(messages, { systemPrompt: agent.systemPrompt, provider: 'bailian', model: agent.model || 'qwen-plus', stream: true, res });
+    agent.usageCount = (agent.usageCount || 0) + 1;
+    saveUserAgents();
+  } catch (e) {
+    res.write(`data: ${JSON.stringify({ error: true, message: e.message })}\n\n`);
+  }
+  res.end();
+});
+
+// ===== ★ P1杀手锏：MCP 技能市场 =====
+// 技能注册表（预置技能 + 开发者上传）
+const MARKETPLACE_SKILLS = [
+  { id: 'web-search', name: '联网搜索', icon: '🔍', category: '信息获取', description: '实时搜索互联网获取最新信息', author: '官方', installCount: 12580, rating: 4.8, version: '1.2.0', status: 'active', coinCost: 1, tags: ['搜索', '实时', '信息'] },
+  { id: 'image-gen', name: 'AI绘画', icon: '🎨', category: '内容生成', description: '根据文字描述生成高质量图片', author: '官方', installCount: 8920, rating: 4.7, version: '2.0.0', status: 'active', coinCost: 2, tags: ['图片', '绘画', 'AI生成'] },
+  { id: 'code-runner', name: '代码执行器', icon: '💻', category: '开发工具', description: '执行Python/JavaScript代码并返回结果', author: '官方', installCount: 5640, rating: 4.6, version: '1.5.0', status: 'active', coinCost: 1, tags: ['代码', '编程', '执行'] },
+  { id: 'doc-reader', name: '文档解析', icon: '📄', category: '信息获取', description: '解析PDF/Word/Excel文档内容', author: '官方', installCount: 4320, rating: 4.5, version: '1.1.0', status: 'active', coinCost: 1, tags: ['文档', 'PDF', '解析'] },
+  { id: 'translate', name: '多语言翻译', icon: '🌐', category: '信息获取', description: '支持50+语言互译', author: '官方', installCount: 9870, rating: 4.9, version: '1.0.0', status: 'active', coinCost: 0, tags: ['翻译', '多语言', '国际化'] },
+  { id: 'data-analysis', name: '数据分析', icon: '📊', category: '数据处理', description: '分析CSV/Excel数据，生成图表和报告', author: '官方', installCount: 3210, rating: 4.4, version: '1.3.0', status: 'active', coinCost: 2, tags: ['数据', '分析', '图表'] },
+  { id: 'wechat-bot', name: '微信机器人', icon: '🤖', category: '自动化', description: '将Agent部署到微信自动回复消息', author: '官方', installCount: 6780, rating: 4.8, version: '2.1.0', status: 'active', coinCost: 5, tags: ['微信', '机器人', '自动化', '部署'] },
+  { id: 'email-assistant', name: '邮件助手', icon: '📧', category: '办公效率', description: '自动撰写、回复、分类邮件', author: '社区', installCount: 2890, rating: 4.3, version: '1.0.0', status: 'active', coinCost: 1, tags: ['邮件', '办公', '效率'] },
+  { id: 'seo-writer', name: 'SEO文案大师', icon: '📝', category: '内容生成', description: '生成搜索引擎优化的营销文案', author: '社区', installCount: 3450, rating: 4.5, version: '1.2.0', status: 'active', coinCost: 1, tags: ['SEO', '文案', '营销'] },
+  { id: 'meeting-notes', name: '会议纪要', icon: '📋', category: '办公效率', description: '自动整理会议纪要和待办事项', author: '社区', installCount: 2100, rating: 4.2, version: '1.0.0', status: 'active', coinCost: 1, tags: ['会议', '纪要', '办公'] },
+  { id: 'customer-service', name: '智能客服', icon: '💬', category: '自动化', description: '7×24小时自动回复客户咨询', author: '官方', installCount: 7890, rating: 4.7, version: '2.0.0', status: 'active', coinCost: 3, tags: ['客服', '自动回复', '服务'] },
+  { id: 'voice-clone', name: '语音克隆', icon: '🎙️', category: '内容生成', description: '克隆声音生成语音内容', author: '社区', installCount: 1560, rating: 4.1, version: '0.9.0', status: 'active', coinCost: 3, tags: ['语音', '克隆', 'TTS'] },
+];
+
+// 用户已安装技能
+const USER_SKILLS_FILE = path.join(__dirname, 'data', 'user_skills.json');
+let userSkillsStore = [];
+try { userSkillsStore = JSON.parse(fs.readFileSync(USER_SKILLS_FILE, 'utf8')); } catch { userSkillsStore = []; }
+function saveUserSkills() { try { fs.writeFileSync(USER_SKILLS_FILE, JSON.stringify(userSkillsStore, null, 2)); } catch (e) {} }
+
+// 技能市场列表
+app.get('/api/v1/marketplace/skills', (req, res) => {
+  const { category, search, page, pageSize } = req.query;
+  let list = [...MARKETPLACE_SKILLS];
+  if (category && category !== 'all') list = list.filter(s => s.category === category);
+  if (search) list = list.filter(s => s.name.includes(search) || s.description.includes(search) || s.tags.some(t => t.includes(search)));
+  const paged = paginate(list, page, pageSize);
+  const categories = [...new Set(MARKETPLACE_SKILLS.map(s => s.category))];
+  res.json({ code: 0, message: 'success', data: { ...paged, categories } });
+});
+
+// 技能详情
+app.get('/api/v1/marketplace/skills/:id', (req, res) => {
+  const skill = MARKETPLACE_SKILLS.find(s => s.id === req.params.id);
+  if (!skill) return res.status(404).json({ code: 404, message: '技能不存在', data: null });
+  const userId = req.user?.id || 1;
+  const installed = userSkillsStore.some(us => us.userId === userId && us.skillId === skill.id);
+  res.json({ code: 0, message: 'success', data: { ...skill, installed } });
+});
+
+// 我的已安装技能
+app.get('/api/v1/marketplace/my-skills', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const mySkillIds = userSkillsStore.filter(us => us.userId === userId).map(us => us.skillId);
+  const installed = MARKETPLACE_SKILLS.filter(s => mySkillIds.includes(s.id));
+  res.json({ code: 0, message: 'success', data: installed });
+});
+
+// 安装技能
+app.post('/api/v1/marketplace/skills/:id/install', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const skill = MARKETPLACE_SKILLS.find(s => s.id === req.params.id);
+  if (!skill) return res.status(404).json({ code: 404, message: '技能不存在', data: null });
+  const existing = userSkillsStore.find(us => us.userId === userId && us.skillId === skill.id);
+  if (existing) return res.json({ code: 0, message: '技能已安装', data: { alreadyInstalled: true } });
+  userSkillsStore.push({ userId, skillId: skill.id, installedAt: new Date().toISOString() });
+  saveUserSkills();
+  auditLog('SKILL_INSTALLED', { userId, skillId: skill.id, skillName: skill.name });
+  log(`[技能市场] 用户${userId}安装了技能「${skill.name}」`);
+  res.json({ code: 0, message: `已安装「${skill.name}」`, data: { skill } });
+});
+
+// 卸载技能
+app.post('/api/v1/marketplace/skills/:id/uninstall', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const idx = userSkillsStore.findIndex(us => us.userId === userId && us.skillId === req.params.id);
+  if (idx < 0) return res.json({ code: 0, message: '技能未安装', data: { notInstalled: true } });
+  const removed = userSkillsStore.splice(idx, 1)[0];
+  saveUserSkills();
+  auditLog('SKILL_UNINSTALLED', { userId, skillId: removed.skillId });
+  res.json({ code: 0, message: '已卸载', data: null });
+});
+
+// 开发者上传技能（审核制）
+app.post('/api/v1/marketplace/skills/submit', authCheck, (req, res) => {
+  const userId = req.user?.id || 1;
+  const { name, icon, description, category, version, coinCost, tags } = req.body;
+  if (!name || !description) return res.status(400).json({ code: 400, message: '技能名称和描述不能为空', data: null });
+  const user = usersStore.find(u => Number(u.id) === userId);
+  if (!user) return res.status(404).json({ code: ERR_CODES.USER_NOT_FOUND, message: '用户不存在', data: null });
+  // 记录提交（待审核）
+  const submission = {
+    id: 'submit-' + Date.now(), userId, username: user.username || user.nickname,
+    name, icon: icon || '🔧', description, category: category || '自定义',
+    version: version || '1.0.0', coinCost: coinCost || 0, tags: tags || [],
+    status: 'pending_review', submittedAt: new Date().toISOString(),
+  };
+  // 追加到审核队列（复用审计日志文件记录）
+  auditLog('SKILL_SUBMITTED', submission);
+  log(`[技能市场] 用户${userId}提交了技能「${name}」待审核`);
+  res.json({ code: 0, message: '技能已提交审核，审核通过后将上架', data: submission });
+});
+
 // ===== API文档路由 =====
 app.get('/api/v1/docs', (req, res) => {
   const swaggerPath = path.join(__dirname, 'swagger.html');
