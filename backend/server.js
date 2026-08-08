@@ -837,11 +837,17 @@ function stripPassword(u) {
   const { password, ...rest } = u;
   return rest;
 }
+// ★ 升级方案：原子写入（先写临时文件再重命名，防止写入中断导致数据损坏）
+function atomicWriteFile(filePath, data) {
+  const tmpPath = filePath + '.tmp';
+  fs.writeFileSync(tmpPath, data);
+  fs.renameSync(tmpPath, filePath);
+}
 function persistUsersStore() {
   const usersFile = path.join(__dirname, 'data', 'users.json');
   try {
     fs.mkdirSync(path.dirname(usersFile), { recursive: true });
-    fs.writeFileSync(usersFile, JSON.stringify(usersStore, null, 2));
+    atomicWriteFile(usersFile, JSON.stringify(usersStore, null, 2));
   } catch (e) {
     console.error('[users] 持久化用户数据失败:', e.message);
   }
@@ -961,6 +967,75 @@ const subscriptionPlansStore = [
   { id: 205, name: '季度成长会员', price: 79.9, period: 'quarterly', days: 90, dailyCoins: 35, firstDayCoins: 35, totalCoins: 3150, description: '90天每天送35圣力，适合长期稳定使用', isRecommended: false },
   { id: 206, name: '季度专业会员', price: 199.9, period: 'quarterly', days: 90, dailyCoins: 120, firstDayCoins: 120, totalCoins: 10800, description: '90天每天送120圣力，适合长期高频业务', isRecommended: false },
 ];
+
+// ★ 升级方案：5级会员权益体系
+const TIER_BENEFITS = {
+  L0: {
+    name: '免费用户', icon: '🆓', level: 0,
+    dailyFreeCoins: 5, // 每天免费5圣力
+    maxToolsPerDay: 3, // 每天最多3次工具调用
+    allowedModels: ['qwen-turbo'], // 只能用基础模型
+    features: ['基础AI对话', '轻量工具'],
+    disabledFeatures: ['图片生成', '视频生成', '高级模型', '知识库', '工作流'],
+  },
+  L1: {
+    name: '圣徒', icon: '🕯️', level: 1,
+    dailyFreeCoins: 15,
+    maxToolsPerDay: 20,
+    allowedModels: ['qwen-turbo', 'qwen-plus'],
+    features: ['基础AI对话', '全部轻量工具', '图片生成(低清)'],
+    disabledFeatures: ['视频生成', '高级模型', '知识库RAG'],
+  },
+  L2: {
+    name: '圣使', icon: '✨', level: 2,
+    dailyFreeCoins: 80,
+    maxToolsPerDay: 100,
+    allowedModels: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    features: ['全部AI对话', '全部工具', '图片生成(高清)', '知识库RAG'],
+    disabledFeatures: ['视频生成', 'API接口'],
+  },
+  L3: {
+    name: '圣尊', icon: '👑', level: 3,
+    dailyFreeCoins: 160,
+    maxToolsPerDay: -1, // 无限
+    allowedModels: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-vl-max', 'wanx-v2'],
+    features: ['全部功能', '视频生成', '高级模型', '知识库RAG', '优先响应'],
+    disabledFeatures: ['API接口'],
+  },
+  L4: {
+    name: '罗总专属', icon: '🏆', level: 4,
+    dailyFreeCoins: -1, // 无限
+    maxToolsPerDay: -1,
+    allowedModels: ['all'], // 全部模型
+    features: ['全部功能', '无限使用', 'API接口', '定制化', '专属客服', '优先响应'],
+    disabledFeatures: [],
+  },
+};
+
+// 根据用户数据计算当前等级
+function getUserTier(user) {
+  if (!user) return 'L0';
+  if (user.unlimited || user.membershipTier === 'founder' || user.vipLevel >= 99) return 'L4';
+  const totalRecharge = Number(user.totalRecharge || 0);
+  const coins = Number(user.coins || 0);
+  const expiresAt = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt).getTime() : 0;
+  const isActive = expiresAt > Date.now();
+  if (!isActive && totalRecharge < 1) return 'L0';
+  const dailyCoins = Number(user.subscriptionDailyCoins || 0);
+  if (dailyCoins >= 160) return 'L3';
+  if (dailyCoins >= 80) return 'L2';
+  if (dailyCoins >= 15) return 'L1';
+  if (isActive) return 'L1';
+  return 'L0';
+}
+
+// 获取用户权益信息
+function getUserBenefits(user) {
+  const tier = getUserTier(user);
+  const benefits = TIER_BENEFITS[tier] || TIER_BENEFITS.L0;
+  return { tier, ...benefits };
+}
+
 const referralsStore = [];
 const REFERRALS_FILE = path.join(__dirname, 'data', 'referrals.json');
 
@@ -4561,7 +4636,7 @@ app.post('/api/v1/auth/login', (req, res) => {
       return res.status(403).json({ code: 403, message: '账号审核未通过，请联系管理员', data: null });
     }
     if (user.status === 'disabled' || user.status === 'banned') {
-      return res.status(403).json({ code: 403, message: '账号已被禁用，请联系管理员', data: null });
+      return res.status(403).json({ code: ERR_CODES.USER_DISABLED, message: '账号已被禁用，请联系管理员', data: null });
     }
   }
 
@@ -4613,7 +4688,7 @@ app.post('/api/v1/auth/login', (req, res) => {
     });
   }
   res.status(401).json({
-    code: 401,
+    code: ERR_CODES.PASSWORD_WRONG,
     message: `账号或密码错误，还剩${failResult.remaining}次机会`,
     data: { failsRemaining: failResult.remaining }
   });
@@ -4783,7 +4858,7 @@ app.post('/api/v1/auth/register', (req, res) => {
   
   // ★ 基础验证
   if (!username || !password) {
-    return res.status(400).json({ code: 400, message: '请输入账号和密码', data: null });
+    return res.status(400).json({ code: ERR_CODES.PASSWORD_WRONG, message: '请输入账号和密码', data: null });
   }
   if (!/^[a-zA-Z0-9_]{4,20}$/.test(username)) {
     return res.status(400).json({ code: 400, message: '账号需为4-20位字母、数字或下划线', data: null });
@@ -4797,7 +4872,7 @@ app.post('/api/v1/auth/register', (req, res) => {
     return res.status(400).json({ code: 400, message: '请输入手机号', data: null });
   }
   if (!/^1[3-9]\d{9}$/.test(phone)) {
-    return res.status(400).json({ code: 400, message: '手机号格式错误，必须为11位有效手机号', data: null });
+    return res.status(400).json({ code: ERR_CODES.PHONE_FORMAT_ERROR, message: '手机号格式错误，必须为11位有效手机号', data: null });
   }
   
   // ★ 真实姓名必填
@@ -4826,13 +4901,13 @@ app.post('/api/v1/auth/register', (req, res) => {
   
   // ★ 检查手机号是否已注册
   if (usersStore.find(u => u.phone === phone)) {
-    return res.status(409).json({ code: 409, message: '该手机号已注册', data: null });
+    return res.status(409).json({ code: ERR_CODES.USER_EXISTS, message: '该手机号已注册', data: null });
   }
   
   // 统一在内存用户池中查重（含文件加载的真实注册用户）
   // ★ 修复：使用规范化比较，防止大小写绕过
   if (usersStore.find(u => String(u.username).toUpperCase().replace(/O/g, '0') === String(username).toUpperCase().replace(/O/g, '0'))) {
-    return res.status(409).json({ code: 409, message: '用户名已存在', data: null });
+    return res.status(409).json({ code: ERR_CODES.USER_EXISTS, message: '用户名已存在', data: null });
   }
   // ★ 修复：同一IP注册限制（防止电脑+手机无限注册）
   const registerIp = getClientIp(req);
@@ -4935,17 +5010,17 @@ app.post('/api/v1/auth/change-password', authCheck, (req, res) => {
     return res.status(400).json({ code: 400, message: '请提供旧密码和新密码', data: null });
   }
   if (newPassword.length < 6) {
-    return res.status(400).json({ code: 400, message: '新密码长度不能少于6位', data: null });
+    return res.status(400).json({ code: ERR_CODES.PASSWORD_TOO_SHORT, message: '新密码长度不能少于6位', data: null });
   }
   // ★ 修复：真正修改密码
   const userId = req.user?.id;
   const user = usersStore.find(u => Number(u.id) === userId);
   if (!user) {
-    return res.status(404).json({ code: 404, message: '用户不存在', data: null });
+    return res.status(404).json({ code: ERR_CODES.USER_NOT_FOUND, message: '用户不存在', data: null });
   }
   // 验证旧密码
   if (!verifyUserPassword(oldPassword, user.password)) {
-    return res.status(401).json({ code: 401, message: '旧密码错误', data: null });
+    return res.status(401).json({ code: ERR_CODES.PASSWORD_WRONG, message: '旧密码错误', data: null });
   }
   // 更新密码
   user.password = hashUserPassword(newPassword);
@@ -7364,7 +7439,7 @@ app.post('/api/v1/payment/subscription/subscribe', authCheck, (req, res) => {
   const planId = Number(req.body?.planId);
   const paymentMethod = req.body?.paymentMethod || 'wechat';
   const plan = subscriptionPlansStore.find(p => Number(p.id) === planId);
-  if (!plan) return res.status(404).json({ code: 404, message: '会员套餐不存在', data: null });
+  if (!plan) return res.status(404).json({ code: ERR_CODES.PLAN_NOT_FOUND, message: '会员套餐不存在', data: null });
   const currentUser = findCurrentUserFileFirst(req.user?.id || 1).user;
   const order = {
     id: Date.now(),
@@ -7405,7 +7480,7 @@ app.post('/api/v1/payment/subscription/claim-daily', authCheck, (req, res) => {
   const now = new Date();
   const expiresAt = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
   if (!expiresAt || expiresAt.getTime() <= now.getTime()) {
-    return res.status(400).json({ code: 400, message: '当前没有有效会员订阅', data: null });
+    return res.status(400).json({ code: ERR_CODES.SUBSCRIPTION_EXPIRED, message: '当前没有有效会员订阅', data: null });
   }
   const today = now.toISOString().slice(0, 10);
   if (user.lastDailyGrantAt === today) {
@@ -8678,6 +8753,21 @@ try { _vip = JSON.parse(fs.readFileSync(_vipFile, 'utf8')); } catch(e) {
   fs.writeFileSync(_vipFile, JSON.stringify(_vip, null, 2));
 }
 app.get('/api/v1/vip/plans', (req, res) => { res.json({ code: 0, message: 'success', data: _vip }); });
+
+// 会员等级权益表
+app.get('/api/v1/vip/tiers', (req, res) => {
+  const tiers = Object.entries(TIER_BENEFITS).map(([key, val]) => ({ id: key, ...val }));
+  res.json({ code: 0, message: 'success', data: tiers });
+});
+
+// 当前用户等级和权益
+app.get('/api/v1/vip/my-benefits', authCheck, (req, res) => {
+  const user = findCurrentUserFileFirst(req.user?.id || 1).user;
+  if (!user) return res.status(404).json({ code: ERR_CODES.USER_NOT_FOUND, message: '用户不存在', data: null });
+  const benefits = getUserBenefits(user);
+  res.json({ code: 0, message: 'success', data: benefits });
+});
+
 app.post('/api/v1/vip/subscribe', authCheck, (req, res) => {
   const plan = _vip.find(p => p.id === Number(req.body.planId));
   if (!plan) return res.json({ code: 400, message: '计划不存在' });
@@ -11183,6 +11273,57 @@ setInterval(() => {
 }, 3600000).unref(); // 每小时检查一次
 // 启动时立即执行一次备份
 setTimeout(performDataBackup, 10000);
+
+// ★ 升级方案：启动时数据完整性检查
+function dataIntegrityCheck() {
+  try {
+    let issues = 0;
+    // 检查1：用户圣力余额不为负数
+    for (const u of usersStore) {
+      if (Number(u.coins) < 0) {
+        console.warn(`[数据检查] 用户${u.id}(${u.username})圣力为负数: ${u.coins}，已修正为0`);
+        u.coins = 0;
+        issues++;
+      }
+    }
+    // 检查2：用户数据去重
+    const seenIds = new Set();
+    const duplicates = [];
+    for (let i = usersStore.length - 1; i >= 0; i--) {
+      const uid = Number(usersStore[i].id);
+      if (seenIds.has(uid)) {
+        duplicates.push(i);
+        issues++;
+      }
+      seenIds.add(uid);
+    }
+    if (duplicates.length > 0) {
+      for (const idx of duplicates) {
+        console.warn(`[数据检查] 移除重复用户: ID=${usersStore[idx].id}`);
+        usersStore.splice(idx, 1);
+      }
+      persistUsersStore();
+    }
+    // 检查3：订单数据完整性
+    const orders = getRechargeOrders();
+    for (const o of orders) {
+      if (!o.id || !o.userId) {
+        console.warn(`[数据检查] 订单数据异常: ${JSON.stringify(o).slice(0, 100)}`);
+        issues++;
+      }
+    }
+    if (issues > 0) {
+      log(`[数据检查] 发现并修复 ${issues} 个问题`);
+      auditLog('DATA_INTEGRITY_CHECK', { issues, fixedAt: new Date().toISOString() });
+    } else {
+      log(`[数据检查] 全部通过，无异常`);
+    }
+  } catch (e) {
+    console.error('[数据检查] 检查失败:', e.message);
+  }
+}
+// 启动后 5 秒执行数据检查
+setTimeout(dataIntegrityCheck, 5000);
 
 // ===== 启动服务器 =====
 app.listen(PORT, '0.0.0.0', () => {
