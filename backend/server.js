@@ -11472,6 +11472,210 @@ function dataIntegrityCheck() {
     console.error('[数据检查] 检查失败:', e.message);
   }
 }
+// ===== 支付宝支付集成 =====
+// 文档：https://opendocs.alipay.com/open/02ekfg
+let AlipaySdk = null;
+let alipaySdk = null;
+try {
+  AlipaySdk = require('alipay-sdk').default || require('alipay-sdk');
+  const ALIPAY_APPID = process.env.ALIPAY_APPID || '2021006185699164';
+  const ALIPAY_PRIVATE_KEY = process.env.ALIPAY_PRIVATE_KEY || 'MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCPqGg/GqJF3VKq5KDV3S+dc1mC3aKXN3iLwYZ1bMJTN/TKlh13KNC9/Uw3fry3/650PZwPDslbM4xLbNwt0ZFHzFaabMf2+EgqhviebfdfhfSfo8Yfd61+ggqvkT9Fsx4LlJvHNF8fMx47ehhBbjdJTez/2V93uPpBtt4V9wAfK2+RnlaY0pSSD0rhqUBJiyv+kCWftBAFie5NhtX/jpI0TtWUD+M2FZGZjG0EPluit4w/NA5N4yMAZ2RRfXjbxuPKdy2mROnR+GvhVccA8HfX+3RXVaZOurkL3a9lVpDOMVG9cR/YWxpBf+O2B5xZyDfPnC8LevMocP/MH88A6RJrAgMBAAECggEAFkH3dN+BiOWTq1qk+L2+ZNy8X6RLTraPfMfNN2BUc2RWDxVXF2FBhk46gtamErQQqX3qMgMOe4zvDbieHJM9uSwVtvNnwAIT3FLxLkrHawtsLVfImJOIU/N+CFmuvfPUkeLCiAi7PDBFXN276FdVRYxHThS1z+zfCVN18V1FrY5nEd4jrhJzIzM07HeNwr3F1BZmj/zE2QaaCXfQl8lIo5ih5V55/PT3sCcWQusPicLL4jStRTUDwEDOYZ6W1gRgK2V3N+Djs92fOAfiCpTHwgPcWdbV98WkQVyMR7gMUYmpp6W85WTS0OT/c9bt6+CNl5U2qTwkhTprrbmEAiXHUQKBgQDhrtU/VhtIno51UFEcG+vadAx0JhH7ywzv/hCjrR7USaHwKJ8lu+sYOfkYn8QQWpoE5pAIbPIPg5WBz8PifJdAxeczYTOW2vjJuoo/Ym1ZGGS25/t3KE6JP2ariqB1KtBpDAouKKiKFrzitMXyc5bF/Dn8y8QgVy/CLn5F2Cea1wKBgQCi9MGW06E7K0NQgieg0U8HrJhM0fEFaL2PH/duL0tgNStSFQ46l5bRYm4bUB+r7Dw+3MlZe9Xfq7McSAQaEAqFOSnN3P2rY3n73Rk7A6QWqRwM6PGcWh3T88ZkAVPU540zfQcGYb/4cyyuyyR5eOnbTuaaKQ3Cfv2MrRS1sQ5GjQKBgEEK6lq+rk5XpCcbZsT7JxZmq9AtyLEQ7EGer5z8oA3+yrU0f+mYJ0FsM+Zs5UzxT8Jp0Mkc3QarncMz5fi4f78jSmb8dKndoiZBpOZvr6Ql66DrawYEj93ub+Cwq14ZYMdluOlkvm5N71JHV2Vw+ttEvlGlSHkpp5IHZE0s5v0xAoGADYs4N9f5E5jh7GQU9RnQbrvaoK/mT2PINYgboY3Ovv1MT3MujpIg1+BNdHmxWDG3RCZHmedf/EoiBdy6cowYw7/fiJuwfbkz30oeGbiQv81oZm5J/ovC5OXi/Fbb59si8j+XAOHI+dZgxVpe+rWhAjhJlFCLMzooyrNsADnqDNUCgYEAlOvde+jiaWm6l+qU2b5L8oUQZc4g7/eh44Gl3Vi7ZWvkF8FBV2MxPAeO8oRbaZbeKf9vxYogieSYrwZMH/MoxeuKI7o9NWIrcVR2036MTBBb/tkoapQS84UsSPZIwieamy8o46W97dyMJsThosp400bwGImZDA6ZNe4B8mWl4PI=';
+  const ALIPAY_PUBLIC_KEY = process.env.ALIPAY_PUBLIC_KEY || ''; // 支付宝公钥（验签用，从开放平台获取）
+  const ALIPAY_GATEWAY = process.env.ALIPAY_GATEWAY || 'https://openapi.alipay.com/gateway.do';
+  const ALIPAY_NOTIFY_URL = process.env.ALIPAY_NOTIFY_URL || 'https://api.lsjyapp.cn/api/v1/payment/alipay/notify';
+  const ALIPAY_RETURN_URL = process.env.ALIPAY_RETURN_URL || 'https://lsjyapp.cn/#/profile/wallet';
+
+  if (ALIPAY_PRIVATE_KEY && ALIPAY_PUBLIC_KEY) {
+    alipaySdk = new AlipaySdk({
+      appId: ALIPAY_APPID,
+      privateKey: ALIPAY_PRIVATE_KEY,
+      alipayPublicKey: ALIPAY_PUBLIC_KEY,
+      gateway: ALIPAY_GATEWAY,
+      signType: 'RSA2',
+    });
+    log(`[支付宝] SDK 初始化成功 (APPID: ${ALIPAY_APPID})`);
+  } else {
+    log(`[支付宝] ⚠️ 公钥未配置，支付功能不可用。请在 .env 中设置 ALIPAY_PUBLIC_KEY`);
+  }
+} catch (e) {
+  log(`[支付宝] SDK 加载失败: ${e.message}`);
+}
+
+// ★ 支付宝电脑网站支付 - 创建订单
+app.post('/api/v1/payment/alipay/create', authCheck, async (req, res) => {
+  try {
+    if (!alipaySdk) {
+      return res.status(503).json({ code: 503, message: '支付宝支付暂未开通，请联系管理员', data: null });
+    }
+
+    const { packageId, amount, subject, body } = req.body;
+    const userId = req.user?.id || 1;
+    const username = req.user?.username || 'unknown';
+
+    // 参数校验
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ code: 400, message: '金额无效', data: null });
+    }
+    if (amount > 10000) {
+      return res.status(400).json({ code: 400, message: '单笔金额不能超过10000元', data: null });
+    }
+
+    // 生成订单号
+    const orderNo = 'LSJY' + Date.now() + Math.random().toString(36).substr(2, 6).toUpperCase();
+    const coinAmount = Math.floor(amount * 100); // 1元=100圣力
+
+    // 保存订单到本地
+    const order = {
+      id: Date.now(),
+      orderNo,
+      userId,
+      username,
+      amount: Number(amount),
+      coinAmount,
+      payMethod: 'alipay',
+      status: 'pending_payment',
+      alipayTradeNo: '',
+      createdAt: new Date().toISOString(),
+      paidAt: null,
+    };
+
+    const orders = getRechargeOrders();
+    orders.push(order);
+    saveRechargeOrders(orders);
+
+    // 调用支付宝 API 创建页面支付订单
+    const result = await alipaySdk.pageExec('alipay.trade.page.pay', {
+      notify_url: ALIPAY_NOTIFY_URL,
+      return_url: ALIPAY_RETURN_URL,
+      bizContent: {
+        out_trade_no: orderNo,
+        product_code: 'FAST_INSTANT_TRADE_PAY',
+        total_amount: amount.toFixed(2),
+        subject: subject || `罗圣纪元-圣力充值 ${coinAmount}圣力`,
+        body: body || `用户 ${username} 充值 ${coinAmount} 圣力`,
+        timeout_express: '15m', // 15分钟超时
+      },
+    });
+
+    // result 是一个 HTML 表单，前端需要用它来跳转支付宝
+    log(`[支付宝] 订单创建成功: ${orderNo}, 金额: ¥${amount}`);
+
+    res.json({
+      code: 0,
+      message: '订单创建成功',
+      data: {
+        orderNo,
+        amount: Number(amount),
+        coinAmount,
+        payUrl: result, // HTML 表单，前端直接写入页面并自动提交
+      },
+    });
+  } catch (e) {
+    log(`[支付宝] 创建订单失败: ${e.message}`);
+    res.status(500).json({ code: 500, message: '创建支付订单失败: ' + e.message, data: null });
+  }
+});
+
+// ★ 支付宝异步通知回调（支付宝服务器 → 我们的服务器）
+app.post('/api/v1/payment/alipay/notify', async (req, res) => {
+  try {
+    log(`[支付宝] 收到异步通知: ${JSON.stringify(req.body).slice(0, 200)}`);
+
+    // 验证签名
+    if (alipaySdk) {
+      const verifyResult = alipaySdk.checkNotifySign(req.body);
+      if (!verifyResult) {
+        log(`[支付宝] ⚠️ 签名验证失败`);
+        return res.send('fail');
+      }
+    }
+
+    const { trade_status, out_trade_no, trade_no, total_amount } = req.body;
+
+    // 只处理交易成功的通知
+    if (trade_status !== 'TRADE_SUCCESS' && trade_status !== 'TRADE_FINISHED') {
+      return res.send('success'); // 其他状态也返回 success，避免支付宝重复通知
+    }
+
+    // 查找订单
+    const orders = getRechargeOrders();
+    const order = orders.find(o => o.orderNo === out_trade_no);
+    if (!order) {
+      log(`[支付宝] ⚠️ 订单不存在: ${out_trade_no}`);
+      return res.send('fail');
+    }
+
+    // 防止重复处理
+    if (order.status === 'approved' || order.status === 'completed') {
+      log(`[支付宝] 订单已处理，跳过: ${out_trade_no}`);
+      return res.send('success');
+    }
+
+    // 更新订单状态
+    order.status = 'approved';
+    order.alipayTradeNo = trade_no;
+    order.paidAt = new Date().toISOString();
+    saveRechargeOrders(orders);
+
+    // 给用户加圣力
+    const users = getUsersStore();
+    const user = users.find(u => u.id === order.userId);
+    if (user) {
+      const currentBalance = user.coins || user.balance || 0;
+      user.coins = currentBalance + order.coinAmount;
+      user.balance = user.coins;
+      saveUsersStore(users);
+
+      // 记录交易流水
+      const tx = {
+        id: Date.now(),
+        userId: order.userId,
+        type: 'recharge',
+        amount: order.coinAmount,
+        balance: user.coins,
+        description: `支付宝充值 ${order.coinAmount} 圣力 (¥${order.amount})`,
+        createdAt: new Date().toISOString(),
+      };
+      const txs = loadCoinTransactionsStore();
+      txs.push(tx);
+      saveCoinTransactionsStore(txs);
+
+      log(`[支付宝] ✅ 充值成功: 用户 ${user.username} +${order.coinAmount} 圣力, 余额: ${user.coins}`);
+    }
+
+    res.send('success');
+  } catch (e) {
+    log(`[支付宝] 处理通知失败: ${e.message}`);
+    res.send('fail');
+  }
+});
+
+// ★ 支付宝订单查询（前端轮询用）
+app.get('/api/v1/payment/alipay/query', authCheck, (req, res) => {
+  const { orderNo } = req.query;
+  if (!orderNo) {
+    return res.status(400).json({ code: 400, message: '缺少订单号', data: null });
+  }
+
+  const orders = getRechargeOrders();
+  const order = orders.find(o => o.orderNo === orderNo);
+  if (!order) {
+    return res.status(404).json({ code: 404, message: '订单不存在', data: null });
+  }
+
+  res.json({
+    code: 0,
+    message: 'ok',
+    data: {
+      orderNo: order.orderNo,
+      status: order.status,
+      amount: order.amount,
+      coinAmount: order.coinAmount,
+      paidAt: order.paidAt,
+    },
+  });
+});
+
 // 启动后 5 秒执行数据检查
 setTimeout(dataIntegrityCheck, 5000);
 
