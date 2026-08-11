@@ -5185,6 +5185,63 @@ app.post('/api/v1/auth/change-password', authCheck, (req, res) => {
   res.json({ code: 0, message: '密码修改成功', data: null });
 });
 
+// ★ 短信验证码登录 API（手机号 + 验证码直接登录）
+app.post('/api/v1/auth/sms-login', async (req, res) => {
+  const { phone, code } = req.body;
+  if (!phone || !code) {
+    return res.status(400).json({ code: 400, message: '请输入手机号和验证码', data: null });
+  }
+  if (!/^1[3-9]\d{9}$/.test(phone)) {
+    return res.status(400).json({ code: 400, message: '手机号格式错误', data: null });
+  }
+  // 验证码校验（5分钟有效）
+  const smsCodeFile = path.join(__dirname, 'data', 'sms_codes.json');
+  let smsCodes = [];
+  try { smsCodes = JSON.parse(fs.readFileSync(smsCodeFile, 'utf8')); } catch {}
+  const validCode = smsCodes.find(c => c.phone === phone && c.code === code && !c.used && (Date.now() - c.createdAt) < 300000);
+  if (!validCode) {
+    return res.status(400).json({ code: 400, message: '验证码错误或已过期', data: null });
+  }
+  validCode.used = true;
+  fs.writeFileSync(smsCodeFile, JSON.stringify(smsCodes, null, 2));
+  // 查找用户
+  let user = usersStore.find(u => u.phone === phone);
+  if (!user) {
+    return res.status(404).json({ code: 404, message: '该手机号未注册，请先注册', data: null });
+  }
+  if (user.status === 'disabled' || user.status === 'banned') {
+    return res.status(403).json({ code: ERR_CODES.USER_DISABLED, message: '账号已被禁用', data: null });
+  }
+  // 登录成功
+  clearLoginFails(user.username);
+  user.lastLoginAt = new Date().toISOString();
+  user.lastLoginIp = getClientIp(req);
+  persistUsersStore();
+  const tokens = issueTokenPair(user);
+  const smsUser = applyProfileOverride({
+    id: user.id,
+    username: user.username,
+    nickname: user.nickname || user.username,
+    roles: user.roles || ['user'],
+    status: user.status || 'active',
+    vipLevel: user.vipLevel || 0,
+    avatar: user.avatar || '',
+    email: user.email || '',
+    phone: user.phone,
+    bio: user.bio || '',
+    gender: user.gender ?? 0,
+    userType: user.userType || 'personal',
+    coins: user.coins || 0,
+    createdAt: user.createdAt,
+  });
+  auditLog('SMS_LOGIN', { phone, userId: user.id, ip: getClientIp(req) });
+  log(`[短信登录] 用户 ${user.username}(ID:${user.id}) 手机号:${phone} 登录成功`);
+  return res.json({
+    code: 0, message: 'success',
+    data: { ...tokens, user: smsUser },
+  });
+});
+
 // ★ P0安全升级：找回密码 API（手机号 + 短信验证码）
 // 第一步：发送找回密码验证码
 app.post('/api/v1/auth/forgot-password/send-code', async (req, res) => {
