@@ -161,6 +161,7 @@ const ERR_CODES = {
   SUBSCRIPTION_EXPIRED: 2004,
   PLAN_NOT_FOUND: 2005,
   WITHDRAW_MIN_ERROR: 2006,
+  ALREADY_CHECKED: 2010,
   // 3000-3999: 系统相关错误
   SYSTEM_ERROR: 3001,
   DB_ERROR: 3002,
@@ -358,6 +359,120 @@ const CONFIG = {
 3. 用户问什么就直接答什么，优先给准确、有步骤、有细节的答案
 4. 回答要专业、友好、简洁`
 };
+
+// ★ P0安全加固：API Key AES-256 加密存储
+const AES_KEY_FILE = path.join(__dirname, 'data', '.aes_key.json');
+let _aesKey = null;
+function getAesKey() {
+  if (_aesKey) return _aesKey;
+  try {
+    const saved = JSON.parse(fs.readFileSync(AES_KEY_FILE, 'utf8'));
+    _aesKey = Buffer.from(saved.key, 'hex');
+  } catch {
+    _aesKey = crypto.randomBytes(32);
+    try { fs.writeFileSync(AES_KEY_FILE, JSON.stringify({ key: _aesKey.toString('hex'), created: new Date().toISOString() })); } catch {}
+  }
+  return _aesKey;
+}
+function encryptApiKey(plainText) {
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv('aes-256-cbc', getAesKey(), iv);
+  let encrypted = cipher.update(plainText, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+function decryptApiKey(encrypted) {
+  if (!encrypted || !encrypted.includes(':')) return encrypted; // 未加密的明文直接返回
+  try {
+    const [ivHex, encText] = encrypted.split(':');
+    const iv = Buffer.from(ivHex, 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-cbc', getAesKey(), iv);
+    let decrypted = decipher.update(encText, 'hex', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+  } catch { return encrypted; } // 解密失败说明是明文，直接返回
+}
+// 自动解密 CONFIG 中的 API Key（兼容明文和加密格式）
+CONFIG.DOUBAO_API_KEY = decryptApiKey(CONFIG.DOUBAO_API_KEY || '');
+CONFIG.JIMENG_API_KEY = decryptApiKey(CONFIG.JIMENG_API_KEY || '');
+CONFIG.DEEPSEEK_API_KEY = decryptApiKey(CONFIG.DEEPSEEK_API_KEY || '');
+CONFIG.TONGYI_API_KEY = decryptApiKey(CONFIG.TONGYI_API_KEY || '');
+CONFIG.SILICONFLOW_API_KEY = decryptApiKey(CONFIG.SILICONFLOW_API_KEY || '');
+CONFIG.ARK_API_KEY = decryptApiKey(CONFIG.ARK_API_KEY || '');
+CONFIG.ZHIPU_API_KEY = decryptApiKey(CONFIG.ZHIPU_API_KEY || '');
+CONFIG.BAIDU_API_KEY = decryptApiKey(CONFIG.BAIDU_API_KEY || '');
+CONFIG.YUANBAO_API_KEY = decryptApiKey(CONFIG.YUANBAO_API_KEY || '');
+CONFIG.COZE_API_KEY = decryptApiKey(CONFIG.COZE_API_KEY || '');
+CONFIG.KLING_API_KEY = decryptApiKey(CONFIG.KLING_API_KEY || '');
+CONFIG.TONGYI_VIDEO_API_KEY = decryptApiKey(CONFIG.TONGYI_VIDEO_API_KEY || '');
+
+// ★ P0：AI 成本监控与预算控制
+const COST_LOG_FILE = path.join(__dirname, 'data', 'ai_cost_log.json');
+const COST_TRACKER = {
+  daily: {}, // { '2026-08-11': { total: 0, calls: 0, byProvider: {}, byUser: {} } }
+  alerts: [],
+};
+// 模型单价（每1000 token 的人民币价格，近似值）
+const MODEL_COST = {
+  'qwen-turbo': 0.002, 'qwen-plus': 0.004, 'qwen-max': 0.02,
+  'doubao-pro': 0.008, 'deepseek-chat': 0.001, 'glm-4': 0.01,
+  'default': 0.005,
+};
+function trackAICost(provider, model, promptTokens, completionTokens, userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (!COST_TRACKER.daily[today]) COST_TRACKER.daily[today] = { total: 0, calls: 0, byProvider: {}, byUser: {} };
+  const day = COST_TRACKER.daily[today];
+  const unitCost = MODEL_COST[model] || MODEL_COST['default'];
+  const cost = ((promptTokens + completionTokens) / 1000) * unitCost;
+  day.total += cost;
+  day.calls += 1;
+  day.byProvider[provider] = (day.byProvider[provider] || 0) + cost;
+  if (userId) day.byUser[userId] = (day.byUser[userId] || 0) + 1;
+  // 日成本告警
+  if (day.total > 100 && !COST_TRACKER.alerts.some(a => a.date === today && a.type === 'daily_100')) {
+    COST_TRACKER.alerts.push({ date: today, type: 'daily_100', cost: day.total, time: new Date().toISOString() });
+    console.warn(`[成本告警] 今日AI成本已达 ¥${day.total.toFixed(2)}`);
+  }
+  if (day.total > 200 && !COST_TRACKER.alerts.some(a => a.date === today && a.type === 'daily_200')) {
+    COST_TRACKER.alerts.push({ date: today, type: 'daily_200', cost: day.total, time: new Date().toISOString() });
+    console.error(`[成本熔断] 今日AI成本已达 ¥${day.total.toFixed(2)}，建议暂停高成本工具`);
+  }
+}
+
+// ★ P0：用户级调用频率限制
+const userCallTracker = {}; // { userId: { count: 0, hour: '2026-08-11T10' } }
+function checkUserRateLimit(userId) {
+  const hour = new Date().toISOString().slice(0, 13);
+  if (!userCallTracker[userId] || userCallTracker[userId].hour !== hour) {
+    userCallTracker[userId] = { count: 0, hour };
+  }
+  userCallTracker[userId].count++;
+  if (userCallTracker[userId].count > 100) return 'throttled'; // 降级
+  if (userCallTracker[userId].count > 50) return 'warn';
+  return 'ok';
+}
+
+// ★ P1：白名单动态管理
+const WHITELIST_FILE = path.join(__dirname, 'data', 'whitelist.json');
+let deviceWhitelist = [];
+try { deviceWhitelist = JSON.parse(fs.readFileSync(WHITELIST_FILE, 'utf8')); } catch { deviceWhitelist = []; }
+function saveWhitelist() { try { fs.writeFileSync(WHITELIST_FILE, JSON.stringify(deviceWhitelist, null, 2)); } catch {} }
+
+// ★ P0：视频异步通知 - 站内消息
+const NOTIFICATIONS_FILE = path.join(__dirname, 'data', 'notifications.json');
+let notifications = [];
+try { notifications = JSON.parse(fs.readFileSync(NOTIFICATIONS_FILE, 'utf8')); } catch { notifications = []; }
+function saveNotifications() { try { fs.writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications.slice(-5000), null, 2)); } catch {} }
+function pushNotification(userId, type, title, content) {
+  notifications.push({ id: Date.now(), userId, type, title, content, read: false, createdAt: new Date().toISOString() });
+  saveNotifications();
+}
+
+// ★ P1：每日签到系统
+const CHECKIN_FILE = path.join(__dirname, 'data', 'checkins.json');
+let checkins = {};
+try { checkins = JSON.parse(fs.readFileSync(CHECKIN_FILE, 'utf8')); } catch { checkins = {}; }
+function saveCheckins() { try { fs.writeFileSync(CHECKIN_FILE, JSON.stringify(checkins, null, 2)); } catch {} }
 
 // ===== 工具函数 =====
 function log(msg) {
@@ -563,6 +678,23 @@ function requireBoss(req, res, next) {
     || roles.includes('super_admin');
   if (!isBoss) {
     return res.status(403).json({ code: 403, message: '仅罗总账号可执行财务审核操作', data: null });
+  }
+  req.user.username = current?.username || req.user.username;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  const current = findCurrentUserFileFirst(req.user?.id || 0).user;
+  const roles = Array.isArray(current?.roles) ? current.roles : [];
+  const isAdmin = current?.username === 'KF02V9'
+    || Number(current?.id) === 1
+    || roles.includes('boss')
+    || roles.includes('founder')
+    || roles.includes('ultimate_admin')
+    || roles.includes('super_admin')
+    || roles.includes('admin');
+  if (!isAdmin) {
+    return res.status(403).json({ code: 403, message: '仅管理员可执行此操作', data: null });
   }
   req.user.username = current?.username || req.user.username;
   next();
@@ -2838,6 +2970,16 @@ async function callOpenAICompatibleAPI(messages, options = {}) {
 
 // AI 对话主函数 - 自动选择可用的 Provider
 async function callAI(messages, options = {}) {
+  // ★ P0：用户级调用频率限制
+  const userId = options.userId;
+  if (userId) {
+    const rateStatus = checkUserRateLimit(userId);
+    if (rateStatus === 'throttled') {
+      log(`[callAI] 用户 ${userId} 调用频率超限，自动降级到 qwen-turbo`);
+      options = { ...options, model: 'qwen-turbo', provider: 'tongyi' };
+    }
+  }
+
   // 优先使用前端传来的provider，否则用默认配置
   let provider = options.provider || CONFIG.AI_PROVIDER;
   const systemMsg = { role: 'system', content: options.systemPrompt || CONFIG.SYSTEM_PROMPT };
@@ -2858,19 +3000,25 @@ async function callAI(messages, options = {}) {
   }
 
   try {
+    let result;
     switch (provider) {
-      case 'coze': return await callCozeAPI(fullMessages, options);
-      case 'doubao': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'doubao' });
-      case 'deepseek': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'deepseek' });
-      case 'tongyi': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'tongyi' });
-      case 'siliconflow': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'siliconflow' });
-      case 'ark': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'ark' });
-      case 'bailian': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'bailian' });
-      case 'zhipu': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'zhipu' });
-      case 'baidu': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'baidu' });
-      case 'yuanbao': return await callOpenAICompatibleAPI(messages, { ...options, provider: 'yuanbao' });
+      case 'coze': result = await callCozeAPI(fullMessages, options); break;
+      case 'doubao': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'doubao' }); break;
+      case 'deepseek': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'deepseek' }); break;
+      case 'tongyi': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'tongyi' }); break;
+      case 'siliconflow': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'siliconflow' }); break;
+      case 'ark': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'ark' }); break;
+      case 'bailian': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'bailian' }); break;
+      case 'zhipu': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'zhipu' }); break;
+      case 'baidu': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'baidu' }); break;
+      case 'yuanbao': result = await callOpenAICompatibleAPI(messages, { ...options, provider: 'yuanbao' }); break;
       default: throw new Error(`未知的AI Provider: ${provider}`);
     }
+    // ★ P0：AI成本追踪
+    if (result && result.usage) {
+      trackAICost(provider, result.model || options.model || 'default', result.usage.prompt_tokens || 0, result.usage.completion_tokens || 0, userId);
+    }
+    return result;
   } catch (err) {
     log(`AI API 调用失败 (${provider}): ${err.message}`);
 
@@ -5254,7 +5402,7 @@ app.get('/api/v1/users', authCheck, (req, res) => {
   batchResolveIps(allIps);
   // ★ 异常标记：排除管理员/特权账号
   const _isAdminOrStaff = u => (u.roles || []).some(r => ['boss', 'founder', 'ultimate_admin', 'super_admin', 'admin', 'operator', 'teacher', 'staff', 'merchant', 'enterprise'].includes(r));
-  const _whitelistedUsernames = ['KF02V9', 'kw002', 'luosheng', 'luosheng2026'];
+  const _whitelistedUsernames = ['KF02V9', 'kw002', 'luosheng', 'luosheng2026', ...deviceWhitelist.map(w => w.username)];
   const enrichedItems = paged.items.map(u => {
     const stripped = stripPassword(u);
     const userIp = u.registerIp || u.lastLoginIp;
@@ -5474,7 +5622,7 @@ app.get('/api/v1/admin/users/stats', authCheck, (req, res) => {
   for (const [k, v] of onlineUsers.entries()) { if (nowMs - v.lastHeartbeat > ONLINE_TIMEOUT) onlineUsers.delete(k); }
   // ★ 异常用户检测：余额>5000 自动报警（排除系统账号、管理员、教师等特殊账号）
   const isAdminOrStaff = u => (u.roles || []).some(r => ['boss', 'founder', 'ultimate_admin', 'super_admin', 'admin', 'operator', 'teacher', 'staff', 'merchant', 'enterprise'].includes(r));
-  const whitelistedUsernames = ['KF02V9', 'kw002', 'luosheng', 'luosheng2026']; // 老板/老师等特权账号
+  const whitelistedUsernames = ['KF02V9', 'kw002', 'luosheng', 'luosheng2026', ...deviceWhitelist.map(w => w.username)]; // 老板/老师等特权账号 + 动态白名单
   const abnormalUsers = all.filter(u => !isAdminOrStaff(u) && !whitelistedUsernames.includes(u.username || '') && (u.coins || 0) > 5000);
   if (abnormalUsers.length > 0) {
     auditLog('BALANCE_ALERT', { count: abnormalUsers.length, users: abnormalUsers.map(u => ({ id: u.id, username: u.username, coins: u.coins })) });
@@ -6117,6 +6265,8 @@ app.get('/api/v1/ai/video/tasks/:taskId', authCheck, async (req, res) => {
         taskMeta.charged = true;
         taskMeta.videoUrl = persistentVideoUrl;
         taskMeta.completedAt = Date.now();
+        // ★ P0：视频异步通知
+        pushNotification(userId, 'video_complete', '视频生成完成', '您的视频已生成完毕，请前往查看');
         balance = deduct.balance;
         record = aiHistoryStore.find(h => h.id === Number(taskMeta.callRecordId));
         if (record) {
@@ -12021,6 +12171,85 @@ app.put('/api/v1/wechat/bots/:id', authCheck, (req, res) => {
   if (keywords !== undefined) bot.keywords = Array.isArray(keywords) ? keywords : bot.keywords;
   saveWechatBots();
   res.json({ code: 0, message: '配置已更新', data: bot });
+});
+
+// ★ P1：白名单动态管理 API
+app.get('/api/v1/admin/whitelist', authCheck, requireBoss, (req, res) => {
+  res.json({ success: true, data: deviceWhitelist });
+});
+app.post('/api/v1/admin/whitelist/add', authCheck, requireBoss, (req, res) => {
+  const { username, reason } = req.body;
+  if (!username) return res.status(400).json({ success: false, message: '请输入用户名' });
+  if (deviceWhitelist.some(w => w.username === username)) return res.status(400).json({ success: false, message: '该用户已在白名单中' });
+  deviceWhitelist.push({ username, reason: reason || '', addedBy: req.user?.username || 'admin', addedAt: new Date().toISOString() });
+  saveWhitelist();
+  res.json({ success: true, message: '已添加到白名单' });
+});
+app.post('/api/v1/admin/whitelist/remove', authCheck, requireBoss, (req, res) => {
+  const { username } = req.body;
+  deviceWhitelist = deviceWhitelist.filter(w => w.username !== username);
+  saveWhitelist();
+  res.json({ success: true, message: '已从白名单移除' });
+});
+
+// ★ P0：通知系统 API
+app.get('/api/v1/notifications', authCheck, (req, res) => {
+  const userId = req.user.id;
+  const userNotifs = notifications.filter(n => n.userId === userId).sort((a, b) => b.id - a.id).slice(0, 50);
+  const unreadCount = userNotifs.filter(n => !n.read).length;
+  res.json({ success: true, data: { items: userNotifs, unreadCount } });
+});
+app.post('/api/v1/notifications/read', authCheck, (req, res) => {
+  const userId = req.user.id;
+  const { ids } = req.body; // 可选，不传则全部标记
+  notifications.forEach(n => {
+    if (n.userId === userId && (!ids || ids.includes(n.id))) n.read = true;
+  });
+  saveNotifications();
+  res.json({ success: true });
+});
+
+// ★ P1：每日签到 API
+app.post('/api/v1/checkin', authCheck, (req, res) => {
+  const userId = String(req.user.id);
+  const today = new Date().toISOString().slice(0, 10);
+  if (!checkins[userId]) checkins[userId] = { records: [], streak: 0 };
+  const userCheckin = checkins[userId];
+  if (userCheckin.records.includes(today)) {
+    return res.status(400).json({ success: false, message: '今天已经签到过了', code: ERR_CODES.ALREADY_CHECKED });
+  }
+  userCheckin.records.push(today);
+  // 计算连续签到天数
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  userCheckin.streak = userCheckin.records.includes(yesterday) ? (userCheckin.streak || 0) + 1 : 1;
+  // 奖励圣力
+  let reward = 5; // 基础5圣力
+  if (userCheckin.streak >= 7) reward = 10;
+  if (userCheckin.streak >= 30) reward = 20;
+  // 发放圣力
+  const usersFile = path.join(__dirname, 'data', 'users.json');
+  let users = [];
+  try { users = JSON.parse(fs.readFileSync(usersFile, 'utf8')); } catch (e) { users = [...usersStore]; }
+  const user = users.find(u => String(u.id) === userId) || usersStore.find(u => String(u.id) === userId);
+  if (user) {
+    user.coins = (user.coins || 0) + reward;
+    try { fs.writeFileSync(usersFile, JSON.stringify(users, null, 2)); } catch {}
+  }
+  saveCheckins();
+  res.json({ success: true, data: { streak: userCheckin.streak, reward, coins: user?.coins || 0 } });
+});
+app.get('/api/v1/checkin/status', authCheck, (req, res) => {
+  const userId = String(req.user.id);
+  const today = new Date().toISOString().slice(0, 10);
+  const userCheckin = checkins[userId] || { records: [], streak: 0 };
+  const checkedToday = userCheckin.records.includes(today);
+  res.json({ success: true, data: { checkedToday, streak: userCheckin.streak || 0, totalDays: userCheckin.records.length } });
+});
+
+// ★ P0：AI成本监控 API
+app.get('/api/v1/admin/ai-cost', authCheck, requireAdmin, (req, res) => {
+  const days = Object.entries(COST_TRACKER.daily).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30);
+  res.json({ success: true, data: { days, alerts: COST_TRACKER.alerts.slice(-20), thresholds: { warn: 100, fuse: 200 } } });
 });
 
 // ===== API文档路由 =====
