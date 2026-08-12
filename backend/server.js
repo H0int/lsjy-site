@@ -775,7 +775,14 @@ function loadProfileOverrides() {
 function saveProfileOverride(userId, patch) {
   const file = path.join(__dirname, 'data', 'profile_overrides.json');
   const overrides = loadProfileOverrides();
-  overrides[String(userId)] = { ...(overrides[String(userId)] || {}), ...patch, updatedAt: new Date().toISOString() };
+  // ★ 过滤掉空字符串值，防止空值覆盖默认数据
+  const cleanPatch = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v !== '' && v !== null && v !== undefined) {
+      cleanPatch[k] = v;
+    }
+  }
+  overrides[String(userId)] = { ...(overrides[String(userId)] || {}), ...cleanPatch, updatedAt: new Date().toISOString() };
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(overrides, null, 2));
   return overrides[String(userId)];
@@ -927,7 +934,7 @@ async function httpsRequest(url, options, body, _retryCount) {
 
 // ===== 内存数据存储 =====
 const usersStore = [
-  { id: 1, username: 'KF02V9', nickname: '罗总', email: 'ceo@lsjyapp.cn', phone: '', roles: ['boss', 'founder', 'ultimate_admin', 'super_admin', 'admin', 'operator'], status: 'active', avatar: '', gender: 1, bio: '罗圣纪元创始人', vipLevel: 99, membershipTier: 'founder', userType: 'founder', unlimited: true, coins: 999999999, totalRecharge: 999999999, createdAt: '2026-05-12T00:00:00Z' },
+  { id: 1, username: 'KF02V9', nickname: '罗总', email: '3196542376@qq.com', phone: '18890000368', roles: ['boss', 'founder', 'ultimate_admin', 'super_admin', 'admin', 'operator'], status: 'active', avatar: '', gender: 1, bio: '罗圣纪元创始人', vipLevel: 99, membershipTier: 'founder', userType: 'founder', unlimited: true, coins: 999999999, totalRecharge: 999999999, createdAt: '2026-05-12T00:00:00Z' },
   { id: 2, username: 'user1', nickname: '测试用户', email: 'test@test.com', phone: '13800138000', roles: ['user'], status: 'active', avatar: '', gender: 0, bio: '普通用户', createdAt: '2026-06-01T00:00:00Z' },
   { id: 3, username: 'admin1', nickname: '管理员', email: 'admin@lsjyapp.cn', phone: '', roles: ['admin'], status: 'active', avatar: '', gender: 1, bio: '系统管理员', createdAt: '2026-03-01T00:00:00Z' },
 ];
