@@ -4939,7 +4939,7 @@ app.post('/api/v1/auth/send-sms-code', async (req, res) => {
     const endpoint = 'https://dysmsapi.aliyuncs.com';
     const action = 'SendSms';
     const version = '2017-05-25';
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     const nonce = `sms_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     
     const params = {
@@ -5273,7 +5273,7 @@ app.post('/api/v1/auth/forgot-password/send-code', async (req, res) => {
   }
   try {
     const endpoint = 'https://dysmsapi.aliyuncs.com';
-    const timestamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
     const nonce = `sms_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
     const params = { Action: 'SendSms', Version: '2017-05-25', Format: 'JSON', AccessKeyId: smsAccessKey, SignatureMethod: 'HMAC-SHA1', SignatureVersion: '1.0', SignatureNonce: nonce, Timestamp: timestamp, PhoneNumbers: phone, SignName: smsSignName, TemplateCode: smsTemplateCode, TemplateParam: JSON.stringify({ code }) };
     const sortedKeys = Object.keys(params).sort();
