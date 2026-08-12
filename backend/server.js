@@ -4750,6 +4750,11 @@ app.post('/api/v1/auth/login', (req, res) => {
       coins: 999999999,
       permissions: ['*'],
       createdAt: '2026-05-12T00:00:00Z',
+      phone: '18890000368',
+      email: '3196542376@qq.com',
+      avatar: '',
+      gender: 1,
+      bio: '罗圣纪元创始人',
     });
     const tokens = issueTokenPair(bossUser);
     return res.json({
